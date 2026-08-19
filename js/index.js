@@ -6,7 +6,7 @@ const GLOBE_RADIUS = 2;
 const ATMOSPHERE_SCALE = 1.15;
 const GLOBE_VISUAL_RADIUS = GLOBE_RADIUS * ATMOSPHERE_SCALE;
 const BASE_ROTATION_SPEED = 0.0045; // idle rotation, radians/frame
-const SCROLL_IMPULSE_SCALE = 0.00015;
+const SCROLL_IMPULSE_SCALE = 0.0001;
 const MAX_ROTATION_SPEED = 0.2;
 const SPEED_RECOVERY_RATE = 0.02; // how fast velocity eases back to base speed
 
@@ -19,8 +19,8 @@ const DESKTOP_LOOK_RATIO = DESKTOP_CAMERA_POSITION.y / DESKTOP_CAMERA_POSITION.z
 // mobile (no room for a side-by-side split), so the globe only needs a
 // gentle offset rather than the desktop's hard right-shift.
 const MOBILE_BREAKPOINT = 700;
-const MOBILE_HERO_SHIFT_X = 0.5;
-const MOBILE_VIEWPORT_MARGIN = 0.4;
+const MOBILE_HERO_SHIFT_X = 0;       
+const MOBILE_VIEWPORT_MARGIN = 0;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
