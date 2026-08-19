@@ -3,23 +3,29 @@ import getStarfield from "./getStarfield.js";
 import { drawThreeGeo } from "./threeGeoJSON.js";
 
 const GLOBE_RADIUS = 2;
+const ATMOSPHERE_SCALE = 1.15;
+const GLOBE_VISUAL_RADIUS = GLOBE_RADIUS * ATMOSPHERE_SCALE;
 const BASE_ROTATION_SPEED = 0.0045; // idle rotation, radians/frame
-const SCROLL_IMPULSE_SCALE = 0.00028;
+const SCROLL_IMPULSE_SCALE = 0.00015;
 const MAX_ROTATION_SPEED = 0.2;
 const SPEED_RECOVERY_RATE = 0.02; // how fast velocity eases back to base speed
+
+// Desktop camera framing — unchanged from before.
+const DESKTOP_CAMERA_POSITION = new THREE.Vector3(0, 1.4, 5.4);
+const DESKTOP_HERO_SHIFT_X = 2.3;
+const DESKTOP_LOOK_RATIO = DESKTOP_CAMERA_POSITION.y / DESKTOP_CAMERA_POSITION.z;
+
+// Mobile (portrait) breakpoint and framing. The hero text is centered on
+// mobile (no room for a side-by-side split), so the globe only needs a
+// gentle offset rather than the desktop's hard right-shift.
+const MOBILE_BREAKPOINT = 700;
+const MOBILE_HERO_SHIFT_X = 0.5;
+const MOBILE_VIEWPORT_MARGIN = 0.4;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  1,
-  100
-);
-// Shifted up and tilted down so we're looking slightly down onto the globe.
-camera.position.set(0, 1.4, 5.4);
-camera.lookAt(0, 0, 0);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 100);
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -36,17 +42,39 @@ const heroEl = document.querySelector(".hero");
 
 // In the hero, the globe sits off to the right of the text; by the time
 // you've scrolled a full hero-height (i.e. into the "Problem" section) it
-// has slid back to center. Narrower screens get a smaller offset so it
-// doesn't run off-canvas.
-function getHeroShiftX() {
-  return window.innerWidth < 700 ? 1.1 : 2.3;
+// has slid back to center.
+let heroShiftX = DESKTOP_HERO_SHIFT_X;
+
+// A portrait phone's frustum is much narrower (in world units) than a
+// desktop window's at the same distance — the same fixed offset that looks
+// right on desktop can push most of the globe off-screen on a phone, or the
+// globe itself can be wider than the frustum. So on narrow screens we pull
+// the camera back until the globe plus its hero-side shift both comfortably
+// fit, instead of reusing the desktop framing as-is.
+function updateCameraFraming() {
+  const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
+
+  if (!isMobile) {
+    camera.position.copy(DESKTOP_CAMERA_POSITION);
+    heroShiftX = DESKTOP_HERO_SHIFT_X;
+  } else {
+    const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+    const neededHalfWidth = GLOBE_VISUAL_RADIUS + MOBILE_HERO_SHIFT_X + MOBILE_VIEWPORT_MARGIN;
+    const distance = neededHalfWidth / (Math.tan(verticalFov / 2) * camera.aspect);
+
+    camera.position.set(0, distance * DESKTOP_LOOK_RATIO, distance);
+    heroShiftX = MOBILE_HERO_SHIFT_X;
+  }
+
+  camera.lookAt(0, 0, 0);
 }
-let heroShiftX = getHeroShiftX();
 
 function getHeroScrollProgress() {
   const heroHeight = heroEl?.offsetHeight || window.innerHeight;
   return THREE.MathUtils.clamp(window.scrollY / heroHeight, 0, 1);
 }
+
+updateCameraFraming();
 
 buildGlobeShell();
 scene.add(getStarfield({ numStars: 1000, fog: false }));
@@ -89,7 +117,7 @@ function buildGlobeShell() {
     depthWrite: false,
   });
   const atmosphere = new THREE.Mesh(sphereGeometry, atmosphereMaterial);
-  atmosphere.scale.setScalar(1.15);
+  atmosphere.scale.setScalar(ATMOSPHERE_SCALE);
   globeGroup.add(atmosphere);
 }
 
@@ -159,7 +187,7 @@ function handleWindowResize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height);
 
-  heroShiftX = getHeroShiftX();
+  updateCameraFraming();
 }
 window.addEventListener("resize", handleWindowResize);
 window.addEventListener("orientationchange", handleWindowResize);

@@ -331,9 +331,15 @@ a {
 
 @media (max-width: 640px) {
   .hero {
-    padding: 6vh 6vw;
-    align-items: flex-end;
-    min-height: 92vh;
+    padding: 6vh 8vw;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+  }
+
+  .hero-content {
+    margin: 0 auto;
   }
 
   .section {
