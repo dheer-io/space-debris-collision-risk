@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Orbital Viewer — Group 6Gs</title>
+    <meta
+      name="description"
+      content="CesiumJS-powered live orbital viewer for the Space Debris Tracking & Satellite Collision Risk Prediction project by Group 6Gs."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="./style.css" />
+    <style>
+      .cesium-page {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 8vh 6vw;
+      }
+
+      .cesium-page .eyebrow {
+        margin-bottom: 1rem;
+      }
+
+      .cesium-page h1 {
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: clamp(1.8rem, 4.5vw, 3rem);
+        margin: 0 0 1.25rem;
+      }
+
+      .cesium-page p {
+        max-width: 34rem;
+        color: var(--text-dim);
+        font-size: 1.05rem;
+        line-height: 1.7;
+        margin: 0 0 2.5rem;
+      }
+
+      #cesium-container {
+        width: min(900px, 100%);
+        aspect-ratio: 16 / 9;
+        border-radius: 16px;
+        border: 1px dashed var(--border);
+        background: var(--card-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-dim);
+        font-size: 0.95rem;
+        letter-spacing: 0.02em;
+        margin-bottom: 2.5rem;
+      }
+
+      .back-link {
+        text-decoration: none;
+        font-size: 0.85rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        transition: color 0.2s ease;
+      }
+
+      .back-link:hover {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="cesium-page">
+      <p class="eyebrow">Group 6Gs</p>
+      <h1>Live Orbital Viewer</h1>
+      <p>
+        This view will render tracked debris and satellites in real orbital
+        context using CesiumJS — coming soon.
+      </p>
+
+      <div id="cesium-container">Cesium viewer will render here</div>
+
+      <a href="./index.html" class="back-link">← Back to overview</a>
+    </main>
+
+    <script type="module" src="../js/cesium.js"></script>
+  </body>
+</html>
