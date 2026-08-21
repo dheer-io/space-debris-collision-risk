@@ -8,7 +8,7 @@ BACKUP_PATH = DATA_DIR / "backup_19.json"  # Replace with your actual backup fil
 
 def merge_catalogs():
     all_items = []
-
+    #done and added
     # Load current catalog if it exists
     if CATALOG_PATH.exists():
         with open(CATALOG_PATH, "r", encoding="utf-8") as f:

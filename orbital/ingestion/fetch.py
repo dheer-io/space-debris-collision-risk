@@ -2,7 +2,7 @@ import json
 import time
 import requests
 from pathlib import Path
-
+from orbital.ingestion.parser import convert_gp_to_tle_schema
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 CATALOG_PATH = DATA_DIR / "catalog_30k.json"
@@ -94,16 +94,16 @@ def save_local_snapshots():
     DATA_DIR.mkdir(exist_ok=True)
     SAMPLE_PATH.parent.mkdir(exist_ok=True)
     
-    data = fetch_satellites(offline=False)
+    raw_data = fetch_satellites(offline=False)
+    
+    print("[INFO] Parsing fetched data into target JSON schema...")
+    parsed_data = [convert_gp_to_tle_schema(obj) for obj in raw_data]
     
     with open(CATALOG_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    print(f"[SAVED] Focused catalog ({len(data)} items) written to {CATALOG_PATH}")
+        json.dump(parsed_data, f, indent=2)
+    print(f"[SAVED] Parsed catalog ({len(parsed_data)} items) written to {CATALOG_PATH}")
     
-    sample_data = data[:100]
+    sample_data = parsed_data[:100]
     with open(SAMPLE_PATH, "w", encoding="utf-8") as f:
         json.dump(sample_data, f, indent=2)
     print(f"[SAVED] Dev sample ({len(sample_data)} items) written to {SAMPLE_PATH}")
-
-if __name__ == "__main__":
-    save_local_snapshots()
