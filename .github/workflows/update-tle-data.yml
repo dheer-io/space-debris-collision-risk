@@ -1,0 +1,32 @@
+name: Update TLE data
+
+on:
+  schedule:
+    # Every 3 hours. CelesTrak asks not to be polled more than once every
+    # 2 hours, so this stays comfortably above that.
+    - cron: "0 */3 * * *"
+  workflow_dispatch: # allows a manual "Run workflow" from the Actions tab
+
+permissions:
+  contents: write # needed to commit the refreshed data file back to the repo
+
+jobs:
+  fetch-tle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch latest TLE data
+        run: node backend/fetchTleData.js
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/raw/tle-latest.json
+          git diff --staged --quiet || git commit -m "Update TLE data"
+          git push
