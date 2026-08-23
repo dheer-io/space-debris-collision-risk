@@ -10,8 +10,8 @@ export function TopBar({ objectCount }) {
   return (
     <div className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900">
       <div className="flex items-baseline gap-3">
-        <span className="text-xl font-bold tracking-wide">PS-04 // ORBITAL WATCH</span>
-        <span className="text-xs text-slate-500 font-mono">CONJUNCTION RISK DASHBOARD</span>
+        <span className="text-xl font-bold tracking-wide">SPACE DEBRIS AND SATELLITES COLLISION DETECTION SYSTEM</span>
+        <span className="text-xs text-slate-500 font-mono">RISK DASHBOARD</span>
       </div>
 
       <div className="flex items-center gap-5">
