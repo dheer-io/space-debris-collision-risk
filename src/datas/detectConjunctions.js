@@ -22,7 +22,7 @@ function propagateSeries(tle, startDate, hours, stepMinutes) {
   }
   return series
 }
-const CLOSE_APPROACH_CUTOFF_KM = 150
+const CLOSE_APPROACH_CUTOFF_KM = 200
 const DOCKED_THRESHOLD_KM = 3 // treat pairs closer than this at every step as one physical structure
 
 export function detectConjunctions(tles, lookaheadHours, stepMinutes = 15) {
