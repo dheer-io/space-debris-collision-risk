@@ -28,5 +28,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/raw/tle-latest.json
-          git diff --staged --quiet || git commit -m "Update TLE data"
-          git push
+          if git diff --staged --quiet; then
+            echo "No data changes, skipping commit."
+            exit 0
+          fi
+          # Amend the previous commit instead of piling up a new one every
+          # run, as long as the previous commit was itself a TLE update —
+          # this keeps repo history/size flat instead of growing ~5MB/run.
+          if [ "$(git log -1 --pretty=%s)" = "Update TLE data" ]; then
+            git commit --amend -m "Update TLE data"
+            git push --force
+          else
+            git commit -m "Update TLE data"
+            git push
+          fi
