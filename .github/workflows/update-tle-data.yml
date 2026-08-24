@@ -8,7 +8,8 @@ on:
   workflow_dispatch: # allows a manual "Run workflow" from the Actions tab
 
 permissions:
-  contents: write # needed to commit the refreshed data file back to the repo
+  contents: write # needed to commit the refreshed data file to the tle-data branch
+  actions: write # needed to trigger the site redeploy workflow
 
 jobs:
   fetch-tle:
@@ -23,10 +24,33 @@ jobs:
       - name: Fetch latest TLE data
         run: node backend/fetchTleData.js
 
-      - name: Commit updated data
+      # The data file is committed on its own orphan branch (tle-data),
+      # never on main, so amending + force-pushing it can never rewrite or
+      # drop any commit from main's history — the two histories are
+      # structurally disconnected.
+      - name: Commit updated data to tle-data branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          cp data/raw/tle-latest.json /tmp/tle-latest.json
+
+          git fetch origin tle-data
+          git checkout tle-data
+
+          mkdir -p data/raw
+          cp /tmp/tle-latest.json data/raw/tle-latest.json
           git add data/raw/tle-latest.json
-          git diff --staged --quiet || git commit -m "Update TLE data"
-          git push
+
+          if git diff --staged --quiet; then
+            echo "No data changes, skipping commit."
+            exit 0
+          fi
+
+          git commit --amend -m "Update TLE data"
+          git push --force origin tle-data
+
+      - name: Trigger site redeploy
+        run: gh workflow run deploy-pages.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

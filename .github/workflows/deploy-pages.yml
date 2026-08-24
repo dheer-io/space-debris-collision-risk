@@ -23,6 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The live TLE data lives on its own orphan branch (tle-data), not on
+      # main, so it can be amended/force-pushed there without touching
+      # main's history. Pull the latest file in here before deploying.
+      - name: Pull latest TLE data
+        run: |
+          mkdir -p data/raw
+          git fetch origin tle-data
+          git show origin/tle-data:data/raw/tle-latest.json > data/raw/tle-latest.json
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
