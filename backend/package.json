@@ -1,0 +1,11 @@
+{
+  "name": "space-debris-backend",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "fetch-tle": "node fetchTleData.js"
+  }
+}

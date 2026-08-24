@@ -1,0 +1,630 @@
+// Satellite search/tracking UI + Three.js markers/orbit rings. Orbital math
+// itself lives in orbitalMechanics.js.
+
+import * as THREE from "three";
+import { createSphereLine } from "./threeGeoJSON.js";
+import { createSatrec, propagateToGeodetic, computeOrbitPath, EARTH_RADIUS_KM } from "./orbitalMechanics.js";
+import { RISK_BANDS, MIN_REPORTABLE_KM, CONJUNCTION_SCREEN_KM, orbitalAltitudeBand } from "./conjunctionMath.js";
+
+const MAX_SELECTIONS = 8;
+
+// Position/marker refresh cadence — slower than 60fps on purpose, cheap on SGP4 work.
+const POSITION_UPDATE_INTERVAL_MS = 200;
+
+// Auto-selected on first catalog load, in order, whichever names are present.
+const DEFAULT_SEARCH_TERMS = ["ISS (ZARYA)", "TIANHE", "TIANGONG", "HST", "ENVISAT", "CSS"];
+const DEFAULT_SELECTION_COUNT = 2;
+
+// Cycled per selection so tracked objects stay visually distinguishable.
+const SELECTION_COLORS = [0x4d9fff, 0xff5d73, 0x8ee6b8, 0xffb84d, 0xc792ea, 0x4dd0ff];
+
+// One color per risk level, plus "clear" for no close approach.
+const RISK_COLORS = { critical: "#ff5d73", high: "#ff8a3d", moderate: "#ffcc4d", low: "#3ddc84", clear: "#3ddc84" };
+
+// Zoom floor, world units — camera.near(1) + globeRadius(2), see index.js.
+const MIN_ZOOM_DISTANCE_WORLD_UNITS = 3;
+// Margin kept past a tracked satellite's own orbit once that's the binding constraint.
+const SATELLITE_ZOOM_MARGIN = 1.5;
+// Zoom range always preserved once a high orbit pushes the floor up (see updateMinZoomDistance).
+const MIN_ZOOM_RANGE_WORLD_UNITS = 4;
+
+// Escapes untrusted text (catalog names come from CelesTrak) before it's
+// interpolated into innerHTML markup elsewhere in this file.
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
+  // Matches the axis realignment threeGeoJSON.js applies to landmasses/borders.
+  const layerGroup = new THREE.Group();
+  layerGroup.rotation.x = -Math.PI * 0.5;
+  globeGroup.add(layerGroup);
+
+  // Shared geometry — only the material (color) differs per marker.
+  const markerGeometry = new THREE.SphereGeometry(globeRadius * 0.015, 12, 12);
+
+  const searchInput = document.getElementById("satellite-search-input");
+  const resultsEl = document.getElementById("satellite-search-results");
+  const trackingEl = document.getElementById("satellite-tracking-list");
+  const trackingEmptyEl = document.getElementById("satellite-tracking-empty");
+  const trackedCountEl = document.getElementById("satellite-tracked-count");
+  const timeScrubSlider = document.getElementById("time-scrub-slider");
+  const timeScrubLabel = document.getElementById("time-scrub-label");
+  const timeScrubReset = document.getElementById("time-scrub-reset");
+  const riskListEl = document.getElementById("risk-list");
+  const riskListEmptyEl = document.getElementById("risk-list-empty");
+
+  let catalog = [];
+  let catalogPromise = null;
+  const selections = new Map(); // norad_id -> Selection
+  let lastPositionUpdate = 0;
+
+  // Runs conjunction screening (tracked satellites vs. the full catalog) off
+  // the main thread — see conjunctionWorker.js. Classic (non-module) worker
+  // for Firefox <114 compatibility (module workers weren't supported before).
+  const conjunctionWorker = new Worker(new URL("./conjunctionWorker.js", import.meta.url));
+  const conjunctionResults = new Map();
+
+  conjunctionWorker.onerror = (event) => {
+    console.error("Conjunction worker failed to load:", event.message || event);
+  };
+
+  conjunctionWorker.onmessage = (event) => {
+    if (event.data.type === "error") {
+      console.error(`Conjunction worker error (${event.data.context}):`, event.data.message);
+      return;
+    }
+    if (event.data.type === "catalogReady") {
+      console.log(
+        `Conjunction worker: catalog ready (${event.data.screenableCount}/${event.data.objectCount} objects screenable).`
+      );
+      return;
+    }
+    if (event.data.type === "result") {
+      console.log(
+        `Conjunction worker: ${event.data.closeApproaches.length} close approach(es) for ${event.data.name}.`
+      );
+      // Only keep it if still tracked — worker may still be mid-screen for a deselected satellite.
+      if (!selections.has(event.data.noradId)) return;
+      conjunctionResults.set(event.data.noradId, { name: event.data.name, closeApproaches: event.data.closeApproaches });
+      renderRiskAndConjunctions();
+    }
+  };
+
+  // Sends the full tracked set (not a diff) — cheap enough at MAX_SELECTIONS (8).
+  function syncConjunctionTracking() {
+    conjunctionWorker.postMessage({ type: "setTracked", noradIds: [...selections.keys()] });
+  }
+
+  // How far ahead of real time tracked markers are drawn, via the Time Scrub
+  // slider. Orbit rings stay fixed (frozen snapshot at selection time).
+  let timeOffsetMs = 0;
+  const TIME_SCRUB_MAX_MINUTES = 300; // 5h — matches the slider's max attribute
+
+  searchInput?.addEventListener("input", () => renderSearchResults(searchInput.value));
+  timeScrubSlider?.addEventListener("input", () => applyTimeScrub(Number(timeScrubSlider.value)));
+  timeScrubReset?.addEventListener("click", () => {
+    if (timeScrubSlider) timeScrubSlider.value = "0";
+    applyTimeScrub(0);
+  });
+
+  // Delegated — Close Approaches folder "+" buttons are re-created on every render.
+  document.getElementById("conjunctions-feed")?.addEventListener("click", (event) => {
+    const addButton = event.target.closest(".feed-item-add");
+    if (!addButton) return;
+    const noradId = Number(addButton.dataset.noradId);
+    const object = catalog.find((entry) => entry.norad_id === noradId);
+    if (!object) return;
+    select(object);
+  });
+
+  function formatTimeOffset(minutes) {
+    if (minutes <= 0) return "Now";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `+${m}m`;
+    if (m === 0) return `+${h}h`;
+    return `+${h}h ${m}m`;
+  }
+
+  function applyTimeScrub(minutes) {
+    timeOffsetMs = minutes * 60_000;
+    if (timeScrubLabel) timeScrubLabel.textContent = formatTimeOffset(minutes);
+    if (timeScrubReset) timeScrubReset.disabled = minutes === 0;
+    if (timeScrubSlider) {
+      timeScrubSlider.style.setProperty("--fill", `${(minutes / TIME_SCRUB_MAX_MINUTES) * 100}%`);
+    }
+    lastPositionUpdate = 0; // bypass the throttle so dragging feels immediate
+  }
+
+  async function loadCatalogOnce() {
+    if (catalogPromise) return catalogPromise;
+
+    catalogPromise = fetch("../../data/raw/tle-latest.json")
+      .then((response) => response.json())
+      .then((data) => {
+        // Precomputed once — avoids re-lowercasing every name on every keystroke.
+        catalog = data.objects.map((object) => ({
+          ...object,
+          nameLower: object.name.toLowerCase(),
+          noradIdStr: String(object.norad_id),
+        }));
+        selectDefaults();
+      })
+      .catch((error) => {
+        console.warn("Could not load satellite catalog:", error.message);
+      });
+
+    return catalogPromise;
+  }
+
+  function selectDefaults() {
+    for (const term of DEFAULT_SEARCH_TERMS) {
+      if (selections.size >= DEFAULT_SELECTION_COUNT) break;
+      const termLower = term.toLowerCase();
+      const match = catalog.find((object) => object.nameLower === termLower);
+      if (match) select(match);
+    }
+
+    // Fill any remaining slots with payload-type objects (small/incomplete catalog fallback).
+    for (const object of catalog) {
+      if (selections.size >= DEFAULT_SELECTION_COUNT) break;
+      if (object.type === "payload") select(object);
+    }
+  }
+
+  function searchCatalog(query) {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return [];
+
+    return catalog
+      .filter((object) => object.nameLower.includes(normalized) || object.noradIdStr.includes(normalized))
+      .slice(0, 20);
+  }
+
+  function renderSearchResults(query) {
+    const matches = searchCatalog(query);
+    resultsEl.innerHTML = "";
+
+    for (const object of matches) {
+      const item = document.createElement("li");
+      const isSelected = selections.has(object.norad_id);
+      item.className = "satellite-result" + (isSelected ? " satellite-result--selected" : "");
+      item.textContent = `${object.name} · #${object.norad_id}`;
+      item.addEventListener("click", () => {
+        select(object);
+        // Clear + close results so the tracking card isn't pushed below the fold on mobile.
+        searchInput.value = "";
+        resultsEl.innerHTML = "";
+      });
+      resultsEl.appendChild(item);
+    }
+  }
+
+  function select(object) {
+    if (selections.has(object.norad_id)) return;
+    if (selections.size >= MAX_SELECTIONS) {
+      console.warn(`Tracking limit reached (${MAX_SELECTIONS}) — deselect something first.`);
+      return;
+    }
+
+    const satrec = createSatrec(object.line1, object.line2);
+    if (!satrec) {
+      console.warn(`Could not compute orbit for "${object.name}" — invalid TLE.`);
+      return;
+    }
+
+    const color = SELECTION_COLORS[selections.size % SELECTION_COLORS.length];
+
+    const marker = new THREE.Mesh(markerGeometry, new THREE.MeshBasicMaterial({ color }));
+    layerGroup.add(marker);
+
+    // gmstSnapshot also drives this object's live position updates (see update()) —
+    // reusing it keeps the marker glued to its own orbit ring instead of drifting off.
+    const { points: orbitPoints, gmstSnapshot } = computeOrbitPath(satrec, new Date(), globeRadius);
+    const orbitLine = createSphereLine(orbitPoints, { color, opacity: 0.5, linewidth: 1 });
+    layerGroup.add(orbitLine);
+
+    const card = buildTrackingCard(object, color, () => deselect(object.norad_id));
+    trackingEl.appendChild(card.element);
+
+    selections.set(object.norad_id, { object, satrec, gmstSnapshot, marker, orbitLine, card });
+    trackingEmptyEl.hidden = selections.size > 0;
+    updateTrackedCount();
+    syncConjunctionTracking();
+    renderRiskAndConjunctions(); // immediate feedback — its own "Screening…" row shows right away
+    updateMinZoomDistance();
+  }
+
+  function deselect(noradId) {
+    const selection = selections.get(noradId);
+    if (!selection) return;
+
+    layerGroup.remove(selection.marker, selection.orbitLine);
+    // Not marker.geometry — shared across every marker (see markerGeometry above).
+    selection.marker.material.dispose();
+    selection.orbitLine.geometry.dispose();
+    selection.orbitLine.material.dispose();
+    selection.card.element.remove();
+
+    selections.delete(noradId);
+    conjunctionResults.delete(noradId);
+    expandedRiskItems.delete(noradId);
+    expandedApproachFolders.delete(noradId);
+    trackingEmptyEl.hidden = selections.size > 0;
+    updateTrackedCount();
+    syncConjunctionTracking();
+    renderRiskAndConjunctions();
+    updateMinZoomDistance();
+  }
+
+  // Keeps OrbitControls from zooming closer than the HIGHEST tracked
+  // satellite's perigee — the highest, since staying outside a low orbit
+  // says nothing about a higher tracked one. perigeeKm is already a radial
+  // distance from Earth's center, so it converts to world units directly.
+  const baseMaxZoomDistance = controls ? controls.maxDistance : Infinity;
+
+  function updateMinZoomDistance() {
+    if (!controls) return;
+
+    let maxPerigeeKm = null;
+    for (const selection of selections.values()) {
+      const { perigeeKm } = orbitalAltitudeBand(selection.satrec);
+      maxPerigeeKm = maxPerigeeKm === null ? perigeeKm : Math.max(maxPerigeeKm, perigeeKm);
+    }
+
+    const worldUnitsPerKm = globeRadius / EARTH_RADIUS_KM;
+    const satelliteMinDistance = maxPerigeeKm === null ? 0 : maxPerigeeKm * worldUnitsPerKm * SATELLITE_ZOOM_MARGIN;
+    const minDistance = Math.max(MIN_ZOOM_DISTANCE_WORLD_UNITS, satelliteMinDistance);
+
+    // Grow the ceiling to match rather than clamping the floor down against a
+    // fixed max — otherwise a MEO/GEO orbit can squeeze the zoom range to ~0.
+    controls.minDistance = minDistance;
+    controls.maxDistance = Math.max(baseMaxZoomDistance, minDistance + MIN_ZOOM_RANGE_WORLD_UNITS);
+  }
+
+  function updateTrackedCount() {
+    if (!trackedCountEl) return;
+    trackedCountEl.textContent = `${selections.size} tracked`;
+  }
+
+  // Cards open collapsed and expand on click/tap to show live stats.
+  function buildTrackingCard(object, color, onRemove) {
+    const element = document.createElement("li");
+    element.className = "satellite-card";
+    element.style.setProperty("--satellite-color", `#${color.toString(16).padStart(6, "0")}`);
+
+    const safeName = escapeHtml(object.name);
+    element.innerHTML = `
+      <div class="satellite-card-header">
+        <span class="satellite-card-dot"></span>
+        <span class="satellite-card-name">${safeName}</span>
+        <span class="satellite-card-id">#${object.norad_id}</span>
+        <button type="button" class="satellite-card-remove" aria-label="Stop tracking ${safeName}">×</button>
+      </div>
+      <dl class="satellite-card-stats">
+        <dt>Lat</dt><dd data-field="lat">—</dd>
+        <dt>Lon</dt><dd data-field="lon">—</dd>
+        <dt>Alt</dt><dd data-field="alt">—</dd>
+      </dl>
+    `;
+
+    element.querySelector(".satellite-card-header").addEventListener("click", (event) => {
+      if (event.target.closest(".satellite-card-remove")) return;
+      element.classList.toggle("satellite-card--expanded");
+    });
+    element.querySelector(".satellite-card-remove").addEventListener("click", onRemove);
+
+    return {
+      element,
+      latField: element.querySelector("[data-field='lat']"),
+      lonField: element.querySelector("[data-field='lon']"),
+      altField: element.querySelector("[data-field='alt']"),
+    };
+  }
+
+  // Runs every frame from animate(), but SGP4 work is throttled to POSITION_UPDATE_INTERVAL_MS.
+  function update(now) {
+    if (selections.size === 0) return;
+    if (now - lastPositionUpdate < POSITION_UPDATE_INTERVAL_MS) return;
+    lastPositionUpdate = now;
+
+    const date = new Date(now + timeOffsetMs);
+
+    for (const selection of selections.values()) {
+      // gmstOverride reuses this object's frozen orbit-ring snapshot instead of live time.
+      const result = propagateToGeodetic(selection.satrec, date, globeRadius, selection.gmstSnapshot);
+      if (!result) continue;
+
+      selection.marker.position.copy(result.spherePosition);
+      selection.card.latField.textContent = `${result.lat.toFixed(2)}°`;
+      selection.card.lonField.textContent = `${result.lon.toFixed(2)}°`;
+      selection.card.altField.textContent = `${result.altitudeKm.toFixed(0)} km`;
+    }
+  }
+
+  // --- Dashboard: risk / conjunctions / alerts ------------------------------
+  // Fed purely by conjunctionWorker.js's streamed results (see conjunctionResults above).
+
+  const expandedRiskItems = new Set();
+  const expandedApproachFolders = new Set();
+
+  const RISK_ITEM_EXTRA_MAX = 5;
+  const APPROACH_FOLDER_MAX = 20;
+
+  // 0-100, closer = higher; 0 at CONJUNCTION_SCREEN_KM.
+  function riskScore(distanceKm) {
+    return Math.round(100 - Math.min(distanceKm / CONJUNCTION_SCREEN_KM, 1) * 100);
+  }
+
+  // "+2h14m" style relative offset from now.
+  function formatApproachTime(atDateIso) {
+    const minutesFromNow = Math.round((new Date(atDateIso).getTime() - Date.now()) / 60_000);
+    if (minutesFromNow <= 0) return "now";
+    const h = Math.floor(minutesFromNow / 60);
+    const m = minutesFromNow % 60;
+    if (h === 0) return `+${m}m`;
+    if (m === 0) return `+${h}h`;
+    return `+${h}h ${m}m`;
+  }
+
+  function renderRiskAndConjunctions() {
+    renderRiskList();
+    renderConjunctionsList();
+    renderAlertsList();
+  }
+
+  // One close-approach row inside a satellite's own folder/risk row.
+  function approachRowHtml(other) {
+    const rawLabel = other.type === "debris" ? `${other.name} (debris)` : other.name;
+    const otherLabel = escapeHtml(rawLabel);
+    const addButton = selections.has(other.noradId)
+      ? ""
+      : `<button type="button" class="feed-item-add" data-norad-id="${other.noradId}" title="Track ${otherLabel}" aria-label="Track ${otherLabel}">+</button>`;
+    return `
+      <div class="dashboard-feed-item-objects">
+        <span>${otherLabel}</span><span class="id">#${other.noradId}</span>
+        ${addButton}
+      </div>
+      <div class="dashboard-feed-item-meta">
+        <span class="dashboard-feed-item-distance">${other.distanceKm.toFixed(1)} km</span>
+        <span class="dashboard-feed-item-time">${formatApproachTime(other.atDate)}</span>
+        <span class="dashboard-feed-item-level">${other.risk.label}</span>
+      </div>
+    `;
+  }
+
+  // One row per tracked satellite (its own closest approach), not per close approach.
+  function renderRiskList() {
+    if (!riskListEl) return;
+
+    const rows = [...selections.entries()].map(([noradId, selection]) => ({
+      noradId,
+      name: selection.object.name,
+      approaches: conjunctionResults.get(noradId)?.closeApproaches, // undefined = still screening
+    }));
+
+    riskListEmptyEl.hidden = rows.length > 0;
+    if (rows.length === 0) {
+      riskListEl.innerHTML = "";
+      return;
+    }
+
+    // Worst (closest) first; unscreened/clear satellites sort last.
+    rows.sort((a, b) => (a.approaches?.[0]?.distanceKm ?? Infinity) - (b.approaches?.[0]?.distanceKm ?? Infinity));
+
+    riskListEl.innerHTML = "";
+    for (const row of rows) {
+      const li = document.createElement("li");
+      const safeName = escapeHtml(row.name);
+
+      if (row.approaches === undefined) {
+        li.className = "risk-item";
+        li.innerHTML = `
+          <div class="risk-item-header" data-foldable="false">
+            <div class="risk-item-name">
+              <span class="risk-item-title">${safeName}</span>
+              <span class="risk-item-id">#${row.noradId}</span>
+            </div>
+            <span class="risk-item-detail">Screening…</span>
+          </div>
+        `;
+        riskListEl.appendChild(li);
+        continue;
+      }
+
+      const closest = row.approaches[0];
+      const level = closest ? closest.risk.level : "clear";
+      const extra = row.approaches.slice(1, 1 + RISK_ITEM_EXTRA_MAX);
+      const foldable = extra.length > 0;
+      const isExpanded = foldable && expandedRiskItems.has(row.noradId);
+
+      li.className = "risk-item" + (isExpanded ? " risk-item--expanded" : "");
+      li.innerHTML = `
+        <div class="risk-item-header" data-foldable="${foldable}">
+          <span class="risk-item-chevron">${foldable ? (isExpanded ? "▾" : "▸") : ""}</span>
+          <div class="risk-item-name">
+            <span class="risk-item-title">${safeName}</span>
+            <span class="risk-item-id">#${row.noradId}</span>
+          </div>
+          ${closest ? `<span class="risk-item-detail">${closest.distanceKm.toFixed(1)} km · ${formatApproachTime(closest.atDate)}</span>` : ""}
+          <span class="risk-item-score" style="--item-risk-color:${RISK_COLORS[level]}">${closest ? riskScore(closest.distanceKm) : 0}</span>
+          <span class="risk-item-badge" style="--item-risk-color:${RISK_COLORS[level]}">${closest ? closest.risk.label : "Clear"}</span>
+        </div>
+        <ul class="risk-item-more"></ul>
+      `;
+
+      if (foldable) {
+        li.querySelector(".risk-item-header").addEventListener("click", () => {
+          if (expandedRiskItems.has(row.noradId)) expandedRiskItems.delete(row.noradId);
+          else expandedRiskItems.add(row.noradId);
+          renderRiskList();
+        });
+      }
+
+      if (isExpanded) {
+        const sublist = li.querySelector(".risk-item-more");
+        for (const other of extra) {
+          const rowEl = document.createElement("li");
+          rowEl.className = "risk-item-more-row";
+          const rawLabel = other.type === "debris" ? `${other.name} (debris)` : other.name;
+          const otherLabel = escapeHtml(rawLabel);
+          rowEl.innerHTML = `<span>${otherLabel} <span class="id">#${other.noradId}</span></span><span>${other.distanceKm.toFixed(1)} km · ${formatApproachTime(other.atDate)}</span>`;
+          sublist.appendChild(rowEl);
+        }
+      }
+
+      riskListEl.appendChild(li);
+    }
+  }
+
+  // One folder per tracked satellite (not one interleaved list) — collapsed by default.
+  function renderConjunctionsList() {
+    const list = document.getElementById("conjunctions-feed");
+    if (!list) return;
+
+    const rows = [...selections.entries()].map(([noradId, selection]) => ({
+      noradId,
+      name: selection.object.name,
+      approaches: conjunctionResults.get(noradId)?.closeApproaches, // undefined = still screening
+    }));
+
+    if (rows.length === 0) {
+      list.innerHTML = `<li class="dashboard-feed-empty">Track a satellite to see its close approaches here.</li>`;
+      return;
+    }
+
+    rows.sort((a, b) => (a.approaches?.[0]?.distanceKm ?? Infinity) - (b.approaches?.[0]?.distanceKm ?? Infinity));
+
+    list.innerHTML = "";
+    for (const row of rows) {
+      const li = document.createElement("li");
+      const isExpanded = expandedApproachFolders.has(row.noradId);
+      const closest = row.approaches?.[0];
+      const countLabel = row.approaches === undefined ? "…" : String(row.approaches.length);
+      const safeName = escapeHtml(row.name);
+
+      li.className = "approach-folder" + (isExpanded ? " approach-folder--expanded" : "");
+      if (closest) li.style.setProperty("--item-risk-color", RISK_COLORS[closest.risk.level]);
+
+      li.innerHTML = `
+        <button type="button" class="approach-folder-header" aria-expanded="${isExpanded}">
+          <span class="approach-folder-chevron">${isExpanded ? "▾" : "▸"}</span>
+          <span class="approach-folder-name">${safeName}</span>
+          <span class="approach-folder-id">#${row.noradId}</span>
+          <span class="approach-folder-count" title="Catalog objects (including debris) predicted within ${CONJUNCTION_SCREEN_KM}km over the next 5h">${countLabel}</span>
+        </button>
+        <ul class="approach-folder-list"></ul>
+      `;
+
+      li.querySelector(".approach-folder-header").addEventListener("click", () => {
+        if (expandedApproachFolders.has(row.noradId)) expandedApproachFolders.delete(row.noradId);
+        else expandedApproachFolders.add(row.noradId);
+        renderConjunctionsList();
+      });
+
+      if (isExpanded) {
+        const sublist = li.querySelector(".approach-folder-list");
+        if (row.approaches === undefined) {
+          sublist.innerHTML = `<li class="dashboard-feed-empty">Screening…</li>`;
+        } else if (row.approaches.length === 0) {
+          sublist.innerHTML = `<li class="dashboard-feed-empty">No close approaches found for this satellite.</li>`;
+        } else {
+          for (const other of row.approaches.slice(0, APPROACH_FOLDER_MAX)) {
+            const item = document.createElement("li");
+            item.className = "dashboard-feed-item";
+            item.style.setProperty("--item-risk-color", RISK_COLORS[other.risk.level]);
+            item.innerHTML = approachRowHtml(other);
+            sublist.appendChild(item);
+          }
+        }
+      }
+
+      list.appendChild(li);
+    }
+  }
+
+  // Per-satellite cap stops one busy constellation from crowding out every
+  // shared alert slot for a genuinely-fine other tracked satellite.
+  const ALERTS_PER_SATELLITE_MAX = 3;
+  const ALERTS_TOTAL_MAX = 10;
+
+  function renderAlertsList() {
+    const list = document.getElementById("alerts-feed");
+    if (!list) return;
+
+    const alerts = [];
+    for (const [trackedNoradId, { name, closeApproaches }] of conjunctionResults) {
+      let takenForThis = 0;
+      for (const other of closeApproaches) {
+        if (other.risk.level !== "critical" && other.risk.level !== "high") continue;
+        if (takenForThis >= ALERTS_PER_SATELLITE_MAX) break;
+        alerts.push({ trackedName: name, trackedNoradId, other });
+        takenForThis++;
+      }
+    }
+    alerts.sort((a, b) => a.other.distanceKm - b.other.distanceKm);
+
+    if (alerts.length === 0) {
+      list.innerHTML = `<li class="dashboard-feed-empty">All clear.</li>`;
+      return;
+    }
+
+    list.innerHTML = "";
+    for (const { trackedName, trackedNoradId, other } of alerts.slice(0, ALERTS_TOTAL_MAX)) {
+      const li = document.createElement("li");
+      li.className = "dashboard-feed-item";
+      li.style.setProperty("--item-risk-color", RISK_COLORS[other.risk.level]);
+      const safeTrackedName = escapeHtml(trackedName);
+      const rawLabel = other.type === "debris" ? `${other.name} (debris)` : other.name;
+      const otherLabel = escapeHtml(rawLabel);
+      li.innerHTML = `
+        <div class="dashboard-feed-item-objects">
+          <span>${safeTrackedName}</span><span class="id">#${trackedNoradId}</span>
+          <span class="dashboard-feed-item-cross">×</span>
+          <span>${otherLabel}</span><span class="id">#${other.noradId}</span>
+        </div>
+        <div class="dashboard-feed-item-meta">
+          <span class="dashboard-feed-item-distance">${other.distanceKm.toFixed(1)} km</span>
+          <span class="dashboard-feed-item-time">${formatApproachTime(other.atDate)}</span>
+          <span class="dashboard-feed-item-level">${other.risk.label}</span>
+        </div>
+      `;
+      list.appendChild(li);
+    }
+  }
+
+  // Built from the real thresholds/caps so the tooltips can't drift out of sync.
+  function riskBandRowsHtml() {
+    return RISK_BANDS.map((band, i) => {
+      const prevMax = i === 0 ? MIN_REPORTABLE_KM : RISK_BANDS[i - 1].maxKm;
+      return `
+        <div class="info-tooltip-row">
+          <span class="info-tooltip-label"><span class="info-tooltip-dot" style="--dot-color:${RISK_COLORS[band.level]}"></span>${band.label}</span>
+          <span class="info-tooltip-range">${prevMax}–${band.maxKm} km</span>
+        </div>`;
+    }).join("");
+  }
+
+  function setTooltip(id, introHtml) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = `<p class="info-tooltip-intro">${introHtml}</p>${riskBandRowsHtml()}`;
+  }
+
+  setTooltip("risk-info-tooltip", `Each tracked satellite's closest predicted approach in the next 5h.`);
+  setTooltip(
+    "conjunctions-info-tooltip",
+    `Every catalog object predicted to come within ${CONJUNCTION_SCREEN_KM}km of each tracked satellite in the next 5h, grouped by satellite.`
+  );
+  setTooltip("alerts-info-tooltip", `The closest Critical and High risk approaches across all tracked satellites.`);
+
+  updateMinZoomDistance(); // sets the default floor before anything's tracked yet
+
+  return { loadCatalogOnce, update };
+}

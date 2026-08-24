@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Space+Grotesk:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Space+Grotesk:wght@400;500;600&family=Share+Tech+Mono&display=swap"
       rel="stylesheet"
     />
 
@@ -24,7 +24,8 @@
           "three": "https://cdn.jsdelivr.net/npm/three@v0.181.0/build/three.webgpu.js",
           "three/webgpu": "https://cdn.jsdelivr.net/npm/three@v0.181.0/build/three.webgpu.js",
           "three/tsl": "https://cdn.jsdelivr.net/npm/three@v0.181.0/build/three.tsl.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@v0.181.0/examples/jsm/"
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@v0.181.0/examples/jsm/",
+          "satellite.js": "https://cdn.jsdelivr.net/npm/satellite.js@7.1.0/+esm"
         }
       }
     </script>
@@ -42,6 +43,9 @@
             Watching Earth's orbital neighborhood in real time — and predicting
             collisions before they happen.
           </p>
+          <button type="button" id="hero-explore-toggle" class="btn-primary hero-cta explore-toggle">
+            Track Live Orbits
+          </button>
           <a href="#details" class="scroll-cue">
             <span class="scroll-cue-dot"></span>
             Scroll to explore
@@ -67,47 +71,54 @@
           <span class="section-tag">What We Built</span>
           <h2>An end-to-end orbital awareness system</h2>
           <div class="feature-list">
-            <div class="feature-row" data-reveal="left">
+            <div class="feature-row">
               <span class="feature-index">01</span>
               <span class="feature-icon" aria-hidden="true"></span>
               <div class="feature-copy">
                 <h3>Real-Time Tracking</h3>
                 <p>
-                  Continuously ingest orbital data to plot debris and active
-                  satellites as they move through near-Earth space.
+                  Search a live catalog of ~19,000 satellites and debris,
+                  track up to 8 at once, and watch their SGP4-propagated
+                  positions update live — or fast-forward up to 5 hours to
+                  see where they'll be.
                 </p>
               </div>
             </div>
-            <div class="feature-row" data-reveal="right">
+            <div class="feature-row">
               <span class="feature-index">02</span>
               <span class="feature-icon" aria-hidden="true"></span>
               <div class="feature-copy">
-                <h3>Collision Risk Prediction</h3>
+                <h3>Collision Risk Screening</h3>
                 <p>
-                  Model close-approach probabilities between tracked objects
-                  and surface risk scores before conjunctions occur.
+                  Every tracked satellite is continuously screened against
+                  the full catalog for its closest predicted approach over
+                  the next 5 hours, scored into Critical/High/Moderate/Low
+                  risk bands.
                 </p>
               </div>
             </div>
-            <div class="feature-row" data-reveal="left">
+            <div class="feature-row">
               <span class="feature-index">03</span>
               <span class="feature-icon" aria-hidden="true"></span>
               <div class="feature-copy">
                 <h3>3D Orbital Visualization</h3>
                 <p>
-                  An interactive globe renders orbital paths and hotspots in a
-                  way that's intuitive to explore, not just read as a table.
+                  An interactive globe renders live orbital paths and
+                  markers in a way that's intuitive to explore, not just
+                  read as a table.
                 </p>
               </div>
             </div>
-            <div class="feature-row" data-reveal="right">
+            <div class="feature-row">
               <span class="feature-index">04</span>
               <span class="feature-icon" aria-hidden="true"></span>
               <div class="feature-copy">
-                <h3>Early-Warning Alerts</h3>
+                <h3>Close Approaches &amp; Alerts</h3>
                 <p>
-                  Flag high-risk encounters ahead of time, giving operators a
-                  window to plan avoidance maneuvers.
+                  Browse every close approach for each tracked satellite,
+                  grouped by satellite, plus a standing list of the
+                  Critical/High risk approaches across everything you're
+                  tracking.
                 </p>
               </div>
             </div>
@@ -119,9 +130,9 @@
           <h2>Built with a modern space-tech stack</h2>
           <ul class="tech-list">
             <li>Three.js · WebGPU</li>
-            <li>CesiumJS</li>
-            <li>Python</li>
-            <li>Orbital Mechanics (SGP4)</li>
+            <li>satellite.js (SGP4/SDP4)</li>
+            <li>Web Workers</li>
+            <li>Node.js · GitHub Actions</li>
             <li>Open Geospatial Data</li>
           </ul>
         </section>
@@ -130,16 +141,16 @@
           <span class="section-tag">Team</span>
           <h2>Crafted by Group 6Gs</h2>
           <p>
-            Built as a hackathon project exploring how orbital data,
-            predictive modeling, and 3D visualization can come together to
-            make space debris risk easier to see and understand.
+            Built as a hackathon project turning live orbital data,
+            collision-risk screening, and 3D visualization into a single
+            tool for seeing and understanding space debris risk.
           </p>
         </section>
 
         <section class="section cta">
           <h2>Ready for a closer look?</h2>
-          <p>Step into our CesiumJS-powered live orbital viewer.</p>
-          <a href="./cesium.html" class="btn-primary">Launch Cesium View →</a>
+          <p>Grab the globe and explore it yourself.</p>
+          <button type="button" id="explore-toggle" class="btn-primary explore-toggle">Explore the Globe</button>
         </section>
       </main>
 
@@ -148,7 +159,123 @@
       </footer>
     </div>
 
+    <!-- Outside .page since .page slides off-screen while exploring. -->
+    <button type="button" id="explore-exit" class="explore-exit">← Back to overview</button>
+
+    <!-- Outside .page, same reason — visible only in explore mode (see body.explore-mode in style.css). -->
+    <aside id="satellite-panel" class="satellite-panel">
+      <div class="dashboard-frame-corner dashboard-frame-corner--br" aria-hidden="true"></div>
+
+      <!-- Status-bar header — dots stand in for window controls. -->
+      <div class="dashboard-panel-header">
+        <div class="dashboard-status-dots" aria-hidden="true">
+          <span class="dashboard-status-dot dashboard-status-dot--alert"></span>
+          <span class="dashboard-status-dot dashboard-status-dot--warn"></span>
+          <span class="dashboard-status-dot dashboard-status-dot--ok"></span>
+        </div>
+        <span class="dashboard-panel-title">
+          <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="1.6" />
+            <circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.1" />
+            <circle cx="16.2" cy="6.4" r="1.3" />
+          </svg>
+          Orbital Track · Live
+        </span>
+        <span id="satellite-tracked-count" class="dashboard-panel-count">0 tracked</span>
+      </div>
+
+      <div class="satellite-panel-scroll">
+        <section class="satellite-search">
+          <svg viewBox="0 0 16.89 16.887" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="6.887" cy="6.887" r="5.625" />
+            <line x1="11.24" y1="11.24" x2="16.006" y2="16.006" />
+          </svg>
+          <input
+            type="search"
+            id="satellite-search-input"
+            placeholder="Search by name or NORAD ID…"
+            autocomplete="off"
+          />
+          <ul id="satellite-search-results" class="satellite-results"></ul>
+        </section>
+
+        <section class="satellite-time-scrub dashboard-section">
+          <div class="time-scrub-readout">
+            <span id="time-scrub-label" class="time-scrub-value">Now</span>
+            <button type="button" id="time-scrub-reset" class="time-scrub-reset" disabled>Back to live</button>
+          </div>
+          <input
+            type="range"
+            id="time-scrub-slider"
+            class="time-scrub-slider"
+            min="0"
+            max="300"
+            step="1"
+            value="0"
+            aria-label="Fast-forward satellite positions up to 5 hours ahead"
+          />
+          <div class="time-scrub-ticks" aria-hidden="true">
+            <span>Now</span>
+            <span>1h</span>
+            <span>2h</span>
+            <span>3h</span>
+            <span>4h</span>
+            <span>5h</span>
+          </div>
+        </section>
+
+        <section class="satellite-tracking dashboard-section">
+          <h2 class="dashboard-heading">Tracking</h2>
+          <ul id="satellite-tracking-list" class="satellite-tracking-list"></ul>
+          <p id="satellite-tracking-empty" class="satellite-tracking-empty">
+            Search above and select an object to track it live.
+          </p>
+        </section>
+
+        <!-- Populated by renderRiskList()/renderConjunctionsList()/renderAlertsList() in satelliteDisplay.js. -->
+        <section class="dashboard-section" id="risk-section">
+          <div class="dashboard-heading-row">
+            <h2 class="dashboard-heading">Risk Assessment</h2>
+            <button type="button" class="info-trigger" id="risk-info-trigger" aria-describedby="risk-info-tooltip">
+              i
+            </button>
+            <div class="info-tooltip" id="risk-info-tooltip" role="tooltip"></div>
+          </div>
+          <ul id="risk-list" class="risk-list"></ul>
+          <p id="risk-list-empty" class="satellite-tracking-empty">Track a satellite to see its risk here.</p>
+        </section>
+
+        <section class="dashboard-section" id="conjunctions-section">
+          <div class="dashboard-heading-row">
+            <h2 class="dashboard-heading">Close Approaches</h2>
+            <button
+              type="button"
+              class="info-trigger"
+              id="conjunctions-info-trigger"
+              aria-describedby="conjunctions-info-tooltip"
+            >
+              i
+            </button>
+            <div class="info-tooltip" id="conjunctions-info-tooltip" role="tooltip"></div>
+          </div>
+          <ul id="conjunctions-feed" class="dashboard-feed"></ul>
+        </section>
+
+        <section class="dashboard-section" id="alerts-section">
+          <div class="dashboard-heading-row">
+            <h2 class="dashboard-heading">Alerts</h2>
+            <button type="button" class="info-trigger" id="alerts-info-trigger" aria-describedby="alerts-info-tooltip">
+              i
+            </button>
+            <div class="info-tooltip" id="alerts-info-tooltip" role="tooltip"></div>
+          </div>
+          <ul id="alerts-feed" class="dashboard-feed dashboard-feed--alerts">
+            <li class="dashboard-feed-empty">All clear.</li>
+          </ul>
+        </section>
+      </div>
+    </aside>
+
     <script type="module" src="../js/index.js"></script>
-    <script type="module" src="../js/scrollReveal.js"></script>
   </body>
 </html>

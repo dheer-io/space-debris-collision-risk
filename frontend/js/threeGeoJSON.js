@@ -133,7 +133,7 @@ function getMidpoint(pointA, pointB) {
   return [(pointA[0] + pointB[0]) / 2, (pointA[1] + pointB[1]) / 2];
 }
 
-function coordinateToSphereVector([lon, lat], radius) {
+export function coordinateToSphereVector([lon, lat], radius) {
   const lonRad = (lon * Math.PI) / 180;
   const latRad = (lat * Math.PI) / 180;
 
@@ -145,16 +145,26 @@ function coordinateToSphereVector([lon, lat], radius) {
 }
 
 function addPoint(container, points, options) {
+  container.add(createSpherePoints(points, options));
+}
+
+function addLine(container, points, options) {
+  container.add(createSphereLine(points, options));
+}
+
+// Exported so other modules (e.g. the satellite layer) can plot their own
+// markers/paths on the globe without duplicating this setup.
+export function createSpherePoints(points, options) {
   const positions = points.flatMap((p) => [p.x, p.y, p.z]);
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
 
   const material = new THREE.PointsMaterial(options);
-  container.add(new THREE.Points(geometry, material));
+  return new THREE.Points(geometry, material);
 }
 
-function addLine(container, points, options) {
+export function createSphereLine(points, options) {
   const positions = points.flatMap((p) => [p.x, p.y, p.z]);
 
   const lineGeometry = new LineGeometry();
@@ -176,6 +186,5 @@ function addLine(container, points, options) {
     lineMaterial.dashOffset = elapsedTime * dashSpeed;
   };
 
-  container.add(line);
-  
+  return line;
 }
