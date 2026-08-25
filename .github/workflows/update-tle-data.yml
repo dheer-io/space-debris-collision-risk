@@ -34,6 +34,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           cp data/raw/tle-latest.json /tmp/tle-latest.json
+          rm -f data/raw/tle-latest.json
 
           git fetch origin tle-data
           git checkout tle-data

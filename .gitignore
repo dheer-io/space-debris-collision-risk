@@ -29,10 +29,10 @@ htmlcov/
 # Logs
 *.log
 
-# Project data — everything under data/ is generated, EXCEPT the *-latest
-# files, which are the ones the deployed frontend fetches at runtime and
-# the scheduled workflow (.github/workflows/update-tle-data.yml) commits.
+# Project data — everything under data/ is generated. tle-latest.json is
+# committed on the dedicated tle-data branch (see
+# .github/workflows/update-tle-data.yml), never on main, so it's fully
+# ignored here. conjunctions-latest.json is still tracked on main.
 data/raw/*
-!data/raw/tle-latest.json
 data/processed/*
 !data/processed/conjunctions-latest.json
