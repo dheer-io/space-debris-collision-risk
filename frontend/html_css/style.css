@@ -1144,7 +1144,7 @@ body.explore-mode .satellite-panel {
 .site-nav--scrolled {
   padding-top: 1.3rem;
   padding-bottom: 1.3rem;
-  background: linear-gradient(180deg, rgba(3, 7, 18, 0.55) 0%, rgba(3, 7, 18, 0.22) 65%, transparent 100%);
+  background: linear-gradient(180deg, rgba(3, 7, 18, 0.68) 0%, rgba(3, 7, 18, 0.32) 65%, transparent 100%);
 }
 
 .site-nav--scrolled::after {
@@ -1479,6 +1479,33 @@ body.explore-mode .satellite-panel {
 
 .details {
   position: relative;
+}
+
+/* The same "vertical rectangle, very low opacity" idea as .site-nav's
+   scroll scrim, applied to the reading column instead of the top bar —
+   a touch stronger than the nav's since body copy has to stay legible
+   over a much longer scroll, not just a thin strip. Soft-fades in/out at
+   the very top/bottom instead of a hard-edged box, and sits behind every
+   section via z-index:-1 (safe here specifically because .details is a
+   descendant of .page's own z-index:1 stacking context — see that rule's
+   own comment — so this never sinks below the fixed globe canvas). */
+.details::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1100px, 90vw);
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(3, 7, 18, 0.72) 4%,
+    rgba(3, 7, 18, 0.72) 96%,
+    transparent 100%
+  );
 }
 
 .section {
