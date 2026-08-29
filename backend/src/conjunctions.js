@@ -42,7 +42,11 @@ const RISK_SEVERITY = { critical: 3, high: 2, moderate: 1, low: 0 };
 const ALERT_MIN_SEVERITY = RISK_SEVERITY.high; // only page someone / list as an active alert for high+
 const ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-function buildScreenableCatalog(objects) {
+// Exported for the Telegram /lookup command, which runs this same
+// single-target scan live and on-demand rather than reading stored results
+// — a rotation-batch target might not have been scanned recently, but any
+// object should be look-up-able right now.
+export function buildScreenableCatalog(objects) {
   const entries = [];
   for (const object of objects) {
     const satrec = createSatrec(object.line1, object.line2);
@@ -58,7 +62,7 @@ function buildScreenableCatalog(objects) {
   return entries;
 }
 
-function findCloseApproaches(target, catalog) {
+export function findCloseApproaches(target, catalog) {
   const fromDate = new Date();
   const closeApproaches = [];
 

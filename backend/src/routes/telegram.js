@@ -3,10 +3,14 @@ import { env } from "../env.js";
 import { getCatalog, searchCatalog } from "../tle.js";
 import { sendTelegramMessage } from "../telegram.js";
 import { supabase } from "../db.js";
+import { buildScreenableCatalog, findCloseApproaches } from "../conjunctions.js";
+import { CONJUNCTION_SCREEN_KM } from "../../../shared/conjunctionMath.js";
 
 export const telegramRouter = Router();
 
 const MAX_MATCHES_SHOWN = 5;
+const LOOKUP_RESULTS_SHOWN = 5;
+const ALERTS_SHOWN = 10;
 
 const HELP_TEXT = [
   "I track close approaches for satellites and debris.",
@@ -14,7 +18,18 @@ const HELP_TEXT = [
   "/watch <NORAD id or name> — get alerted on high/critical risk close approaches",
   "/unwatch <NORAD id or name> — stop watching",
   "/list — show what you're watching",
+  "/lookup <NORAD id or name> — live scan for one object's closest approaches right now",
+  "/alerts — everything currently high/critical risk, catalog-wide",
 ].join("\n");
+
+function formatApproachLine(approach) {
+  const otherNoradId = approach.otherNoradId ?? approach.other_norad_id;
+  const otherName = approach.otherName ?? approach.other_name;
+  const distanceKm = approach.distanceKm ?? approach.distance_km;
+  const riskLevel = approach.riskLevel ?? approach.risk_level;
+  const closestApproachAt = approach.closestApproachAt ?? new Date(approach.closest_approach_at);
+  return `${riskLevel.toUpperCase()} — ${otherName} (${otherNoradId}): ${distanceKm.toFixed(2)} km at ${closestApproachAt.toUTCString()}`;
+}
 
 async function resolveOneMatch(query, chatId) {
   const catalog = await getCatalog();
@@ -83,6 +98,58 @@ async function handleList(chatId) {
   await sendTelegramMessage(chatId, `Watching:\n${list}`);
 }
 
+// Runs the same live single-target scan runConjunctionScan() does, on
+// demand, for whatever's asked for — not a read of stored results, so it
+// works for any object regardless of whether it happened to be in a
+// recent scheduled scan's rotation batch.
+async function handleLookup(chatId, query) {
+  if (!query) return sendTelegramMessage(chatId, "Usage: /lookup <NORAD id or name>");
+
+  const catalog = await getCatalog();
+  const object = await resolveOneMatch(query, chatId);
+  if (!object) return;
+
+  const screenable = buildScreenableCatalog(catalog.objects);
+  const target = screenable.find((entry) => entry.noradId === object.norad_id);
+  if (!target) {
+    return sendTelegramMessage(chatId, `${object.name} (${object.norad_id}) has unusable orbital elements right now — can't scan it.`);
+  }
+
+  const closeApproaches = findCloseApproaches(target, screenable);
+  if (closeApproaches.length === 0) {
+    return sendTelegramMessage(
+      chatId,
+      `${object.name} (${object.norad_id}): nothing within ${CONJUNCTION_SCREEN_KM}km over the next 5 hours.`,
+    );
+  }
+
+  const shown = closeApproaches.slice(0, LOOKUP_RESULTS_SHOWN).map(formatApproachLine).join("\n");
+  const more =
+    closeApproaches.length > LOOKUP_RESULTS_SHOWN ? `\n…and ${closeApproaches.length - LOOKUP_RESULTS_SHOWN} more.` : "";
+  await sendTelegramMessage(chatId, `${object.name} (${object.norad_id}) — closest approaches right now:\n${shown}${more}`);
+}
+
+// Reads active_alerts (see db/schema.sql) — the live high/critical set kept
+// in sync by every scheduled scan, same data GET /api/alerts serves.
+async function handleAlerts(chatId) {
+  const { data, error } = await supabase
+    .from("active_alerts")
+    .select("norad_id, satellite_name, other_norad_id, other_name, distance_km, risk_level, closest_approach_at")
+    .order("risk_level", { ascending: true })
+    .order("distance_km", { ascending: true })
+    .limit(ALERTS_SHOWN);
+  if (error) throw error;
+
+  if (data.length === 0) return sendTelegramMessage(chatId, "Nothing catalog-wide is high/critical risk right now.");
+
+  const lines = data.map(
+    (row) =>
+      `${row.risk_level.toUpperCase()} — ${row.satellite_name} (${row.norad_id}) vs ${row.other_name} (${row.other_norad_id}): ` +
+      `${row.distance_km.toFixed(2)} km at ${new Date(row.closest_approach_at).toUTCString()}`,
+  );
+  await sendTelegramMessage(chatId, `Current high/critical alerts:\n${lines.join("\n")}`);
+}
+
 // Telegram calls this on every message sent to the bot. Registered once via
 // scripts/setWebhook.js — see backend/README.md.
 telegramRouter.post("/webhook", async (req, res) => {
@@ -111,6 +178,8 @@ telegramRouter.post("/webhook", async (req, res) => {
       if (command === "/watch") await handleWatch(chatId, argument);
       else if (command === "/unwatch") await handleUnwatch(chatId, argument);
       else if (command === "/list") await handleList(chatId);
+      else if (command === "/lookup") await handleLookup(chatId, argument);
+      else if (command === "/alerts") await handleAlerts(chatId);
       else await sendTelegramMessage(chatId, HELP_TEXT);
     }
   } catch (error) {

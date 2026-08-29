@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { satellitesRouter } from "./routes/satellites.js";
-import { leaderboardRouter } from "./routes/leaderboard.js";
 import { alertsRouter } from "./routes/alerts.js";
 import { refreshRouter } from "./routes/refresh.js";
 import { telegramRouter } from "./routes/telegram.js";
@@ -9,7 +8,7 @@ import { telegramRouter } from "./routes/telegram.js";
 export const app = express();
 
 // This is meant to be a public read API (that's the point — see
-// /api/satellites and /api/leaderboard), so browsers on other origins need
+// /api/satellites and /api/alerts), so browsers on other origins need
 // to be able to read the response. The two POST routes don't rely on
 // cookies/sessions for auth (they check a shared-secret header instead),
 // so a permissive CORS policy doesn't weaken them.
@@ -20,20 +19,13 @@ app.get("/", (req, res) => {
   res.json({
     name: "space-debris-collision-risk API",
     docs: "https://github.com/dheer-io/space-debris-collision-risk/blob/main/backend/README.md",
-    endpoints: [
-      "/api/health",
-      "/api/satellites/:noradId",
-      "/api/satellites/:noradId/conjunctions",
-      "/api/leaderboard",
-      "/api/alerts",
-    ],
+    endpoints: ["/api/health", "/api/satellites/:noradId", "/api/satellites/:noradId/conjunctions", "/api/alerts"],
   });
 });
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use("/api/satellites", satellitesRouter);
-app.use("/api/leaderboard", leaderboardRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/refresh", refreshRouter);
 app.use("/api/telegram", telegramRouter);
