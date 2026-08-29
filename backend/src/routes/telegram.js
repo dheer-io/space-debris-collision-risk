@@ -15,11 +15,11 @@ const ALERTS_SHOWN = 10;
 const HELP_TEXT = [
   "I track close approaches for satellites and debris.",
   "",
-  "/watch <NORAD id or name> — get alerted on high/critical risk close approaches",
+  "/watch <NORAD id or name> — get alerted on critical risk close approaches",
   "/unwatch <NORAD id or name> — stop watching",
   "/list — show what you're watching",
   "/lookup <NORAD id or name> — live scan for one object's closest approaches right now",
-  "/alerts — everything currently high/critical risk, catalog-wide",
+  "/alerts — everything currently critical risk, catalog-wide",
 ].join("\n");
 
 function formatApproachLine(approach) {
@@ -64,7 +64,7 @@ async function handleWatch(chatId, query) {
 
   await sendTelegramMessage(
     chatId,
-    `Watching ${object.name} (${object.norad_id}). I'll message you here if it's predicted to come within high/critical risk range of something.`,
+    `Watching ${object.name} (${object.norad_id}). I'll message you here if it's predicted to come within critical risk range of something.`,
   );
 }
 
@@ -129,25 +129,24 @@ async function handleLookup(chatId, query) {
   await sendTelegramMessage(chatId, `${object.name} (${object.norad_id}) — closest approaches right now:\n${shown}${more}`);
 }
 
-// Reads active_alerts (see db/schema.sql) — the live high/critical set kept
+// Reads active_alerts (see db/schema.sql) — the live critical set kept
 // in sync by every scheduled scan, same data GET /api/alerts serves.
 async function handleAlerts(chatId) {
   const { data, error } = await supabase
     .from("active_alerts")
     .select("norad_id, satellite_name, other_norad_id, other_name, distance_km, risk_level, closest_approach_at")
-    .order("risk_level", { ascending: true })
     .order("distance_km", { ascending: true })
     .limit(ALERTS_SHOWN);
   if (error) throw error;
 
-  if (data.length === 0) return sendTelegramMessage(chatId, "Nothing catalog-wide is high/critical risk right now.");
+  if (data.length === 0) return sendTelegramMessage(chatId, "Nothing catalog-wide is critical risk right now.");
 
   const lines = data.map(
     (row) =>
       `${row.risk_level.toUpperCase()} — ${row.satellite_name} (${row.norad_id}) vs ${row.other_name} (${row.other_norad_id}): ` +
       `${row.distance_km.toFixed(2)} km at ${new Date(row.closest_approach_at).toUTCString()}`,
   );
-  await sendTelegramMessage(chatId, `Current high/critical alerts:\n${lines.join("\n")}`);
+  await sendTelegramMessage(chatId, `Current critical alerts:\n${lines.join("\n")}`);
 }
 
 // Telegram calls this on every message sent to the bot. Registered once via

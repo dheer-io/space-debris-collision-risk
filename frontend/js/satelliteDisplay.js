@@ -5,8 +5,17 @@ import * as THREE from "three";
 import { createSphereLine } from "./threeGeoJSON.js";
 import { createSatrec, propagateToGeodetic, computeOrbitPath, EARTH_RADIUS_KM } from "./orbitalMechanics.js";
 import { RISK_BANDS, MIN_REPORTABLE_KM, CONJUNCTION_SCREEN_KM, orbitalAltitudeBand } from "../../shared/conjunctionMath.js";
+import { showDistanceChart } from "./distanceChart.js";
 
 const MAX_SELECTIONS = 8;
+
+// The backend's calculated, catalog-wide critical-risk feed (see
+// backend/src/routes/alerts.js) — independent of what's tracked in this
+// browser tab. Hardcoded rather than derived from window.location since
+// the frontend (GitHub Pages) and backend (Vercel) are deployed
+// separately; point this at your own deployed backend if it differs.
+const ALERTS_API_URL = "https://satellite-risk.vercel.app/api/alerts";
+const ALERTS_POLL_INTERVAL_MS = 60_000;
 
 // Position/marker refresh cadence — slower than 60fps on purpose, cheap on SGP4 work.
 const POSITION_UPDATE_INTERVAL_MS = 200;
@@ -304,6 +313,16 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
       <div class="satellite-card-header">
         <span class="satellite-card-dot"></span>
         <span class="satellite-card-name">${safeName}</span>
+        <button
+          type="button"
+          class="satellite-card-chart-btn"
+          aria-label="Plot distance over time for ${safeName}"
+          title="Distance-over-time chart"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 13V9M6 13V5M10 13V7M14 13V3" stroke-linecap="round" />
+          </svg>
+        </button>
         <span class="satellite-card-id">#${object.norad_id}</span>
         <button type="button" class="satellite-card-remove" aria-label="Stop tracking ${safeName}">×</button>
       </div>
@@ -315,10 +334,24 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
     `;
 
     element.querySelector(".satellite-card-header").addEventListener("click", (event) => {
-      if (event.target.closest(".satellite-card-remove")) return;
+      if (event.target.closest(".satellite-card-remove") || event.target.closest(".satellite-card-chart-btn")) return;
       element.classList.toggle("satellite-card--expanded");
     });
     element.querySelector(".satellite-card-remove").addEventListener("click", onRemove);
+    // Reads selections/conjunctionResults/catalog live at click time (not
+    // at card-build time) — worker results and the catalog both arrive
+    // asynchronously after this card already exists.
+    element.querySelector(".satellite-card-chart-btn").addEventListener("click", () => {
+      const selection = selections.get(object.norad_id);
+      if (!selection) return;
+      showDistanceChart({
+        trackedName: object.name,
+        trackedNoradId: object.norad_id,
+        trackedSatrec: selection.satrec,
+        closeApproaches: conjunctionResults.get(object.norad_id)?.closeApproaches,
+        findObjectByNoradId: (noradId) => catalog.find((entry) => entry.norad_id === noradId),
+      });
+    });
 
     return {
       element,
@@ -373,10 +406,11 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
     return `+${h}h ${m}m`;
   }
 
+  // Alerts intentionally isn't rendered from here — it's driven by its own
+  // pollBackendAlerts() timer, independent of local tracking changes.
   function renderRiskAndConjunctions() {
     renderRiskList();
     renderConjunctionsList();
-    renderAlertsList();
   }
 
   // One close-approach row inside a satellite's own folder/risk row.
@@ -549,50 +583,57 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
     }
   }
 
-  // Per-satellite cap stops one busy constellation from crowding out every
-  // shared alert slot for a genuinely-fine other tracked satellite.
-  const ALERTS_PER_SATELLITE_MAX = 3;
   const ALERTS_TOTAL_MAX = 10;
+
+  // Unlike Risk/Close Approaches (both purely local — whatever this tab
+  // happens to be tracking), Alerts shows the BACKEND's own catalog-wide
+  // scan: satellites nobody in this browser tab selected can still show up
+  // here if the backend's scan found them critical. Polled independently
+  // of the tracking list on its own timer (see ALERTS_POLL_INTERVAL_MS),
+  // not tied to conjunctionWorker.js's results at all.
+  let backendAlerts = [];
+
+  async function pollBackendAlerts() {
+    try {
+      const response = await fetch(ALERTS_API_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      backendAlerts = data.alerts ?? [];
+    } catch (error) {
+      // Backend being unreachable shouldn't break a page that otherwise
+      // works entirely client-side — just leave the last-known list (or
+      // empty, on first load) and try again next interval.
+      console.warn("Could not load live alerts from the backend:", error.message);
+    }
+    renderAlertsList();
+  }
 
   function renderAlertsList() {
     const list = document.getElementById("alerts-feed");
     if (!list) return;
 
-    const alerts = [];
-    for (const [trackedNoradId, { name, closeApproaches }] of conjunctionResults) {
-      let takenForThis = 0;
-      for (const other of closeApproaches) {
-        if (other.risk.level !== "critical" && other.risk.level !== "high") continue;
-        if (takenForThis >= ALERTS_PER_SATELLITE_MAX) break;
-        alerts.push({ trackedName: name, trackedNoradId, other });
-        takenForThis++;
-      }
-    }
-    alerts.sort((a, b) => a.other.distanceKm - b.other.distanceKm);
-
-    if (alerts.length === 0) {
+    if (backendAlerts.length === 0) {
       list.innerHTML = `<li class="dashboard-feed-empty">All clear.</li>`;
       return;
     }
 
     list.innerHTML = "";
-    for (const { trackedName, trackedNoradId, other } of alerts.slice(0, ALERTS_TOTAL_MAX)) {
+    for (const alert of backendAlerts.slice(0, ALERTS_TOTAL_MAX)) {
       const li = document.createElement("li");
       li.className = "dashboard-feed-item";
-      li.style.setProperty("--item-risk-color", RISK_COLORS[other.risk.level]);
-      const safeTrackedName = escapeHtml(trackedName);
-      const rawLabel = other.type === "debris" ? `${other.name} (debris)` : other.name;
-      const otherLabel = escapeHtml(rawLabel);
+      li.style.setProperty("--item-risk-color", RISK_COLORS[alert.risk_level] ?? RISK_COLORS.critical);
+      const safeTrackedName = escapeHtml(alert.satellite_name);
+      const otherLabel = escapeHtml(alert.other_name);
       li.innerHTML = `
         <div class="dashboard-feed-item-objects">
-          <span>${safeTrackedName}</span><span class="id">#${trackedNoradId}</span>
+          <span>${safeTrackedName}</span><span class="id">#${alert.norad_id}</span>
           <span class="dashboard-feed-item-cross">×</span>
-          <span>${otherLabel}</span><span class="id">#${other.noradId}</span>
+          <span>${otherLabel}</span><span class="id">#${alert.other_norad_id}</span>
         </div>
         <div class="dashboard-feed-item-meta">
-          <span class="dashboard-feed-item-distance">${other.distanceKm.toFixed(1)} km</span>
-          <span class="dashboard-feed-item-time">${formatApproachTime(other.atDate)}</span>
-          <span class="dashboard-feed-item-level">${other.risk.label}</span>
+          <span class="dashboard-feed-item-distance">${alert.distance_km.toFixed(2)} km</span>
+          <span class="dashboard-feed-item-time">${formatApproachTime(alert.closest_approach_at)}</span>
+          <span class="dashboard-feed-item-level">${alert.risk_level}</span>
         </div>
       `;
       list.appendChild(li);
@@ -622,9 +663,17 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
     "conjunctions-info-tooltip",
     `Every catalog object predicted to come within ${CONJUNCTION_SCREEN_KM}km of each tracked satellite in the next 5h, grouped by satellite.`
   );
-  setTooltip("alerts-info-tooltip", `The closest Critical and High risk approaches across all tracked satellites.`);
+  setTooltip(
+    "alerts-info-tooltip",
+    `Critical-risk close approaches from the backend's own catalog-wide scan — not limited to what you're tracking here.`
+  );
 
   updateMinZoomDistance(); // sets the default floor before anything's tracked yet
+
+  // Independent of tracking/selection — runs regardless of what (if
+  // anything) is being tracked in this tab, and regardless of explore mode.
+  pollBackendAlerts();
+  setInterval(pollBackendAlerts, ALERTS_POLL_INTERVAL_MS);
 
   return { loadCatalogOnce, update };
 }

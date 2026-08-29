@@ -46,7 +46,10 @@ const SCAN_INTERVAL_MS = 2 * 60 * 60 * 1000;
 // critical > high > moderate > low, used to decide whether a repeat sighting
 // of the same pair is worth alerting on again (see shouldAlert below).
 const RISK_SEVERITY = { critical: 3, high: 2, moderate: 1, low: 0 };
-const ALERT_MIN_SEVERITY = RISK_SEVERITY.high; // only page someone / list as an active alert for high+
+// Raised from "high" to "critical only" — high+critical together were too
+// noisy for what's meant to be a short, genuinely-urgent list (both for the
+// Telegram push and for active_alerts/the frontend's live alert feed).
+const ALERT_MIN_SEVERITY = RISK_SEVERITY.critical;
 const ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // Exported for the Telegram /lookup command, which runs this same
@@ -115,7 +118,7 @@ function pickTargetIds(catalogObjects, watchlistNoradIds) {
   return [...ids];
 }
 
-// Alerts only fire for high/critical risk, and only once per (watcher,
+// Alerts only fire for critical risk, and only once per (watcher,
 // other object) per day unless the risk has gotten worse since the last
 // alert — otherwise a slow-moving multi-day conjunction would re-page the
 // same person every single 2h scan. Watchlist sizes are small (a handful
@@ -142,11 +145,11 @@ async function shouldAlert(watchlistId, otherNoradId, severity) {
 
 async function alertWatchers(target, closeApproaches, watchers) {
   if (watchers.length === 0) return 0;
-  const criticalOrHigh = closeApproaches.filter((a) => (RISK_SEVERITY[a.riskLevel] ?? 0) >= ALERT_MIN_SEVERITY);
-  if (criticalOrHigh.length === 0) return 0;
+  const criticalApproaches = closeApproaches.filter((a) => (RISK_SEVERITY[a.riskLevel] ?? 0) >= ALERT_MIN_SEVERITY);
+  if (criticalApproaches.length === 0) return 0;
 
   let alertsSent = 0;
-  for (const approach of criticalOrHigh) {
+  for (const approach of criticalApproaches) {
     const severity = RISK_SEVERITY[approach.riskLevel] ?? 0;
 
     for (const watcher of watchers) {
@@ -209,7 +212,7 @@ export async function runConjunctionScan() {
   // than the actual SGP4 math does.
   const conjunctionRows = [];
   const activeAlertRows = [];
-  const currentAlertKeysByTarget = new Map(); // noradId -> Set<otherNoradId> currently high/critical
+  const currentAlertKeysByTarget = new Map(); // noradId -> Set<otherNoradId> currently critical
 
   let eventsFound = 0;
   let alertsSent = 0;
@@ -233,9 +236,9 @@ export async function runConjunctionScan() {
       });
     }
 
-    const criticalOrHigh = closeApproaches.filter((a) => (RISK_SEVERITY[a.riskLevel] ?? 0) >= ALERT_MIN_SEVERITY);
-    currentAlertKeysByTarget.set(target.noradId, new Set(criticalOrHigh.map((a) => a.otherNoradId)));
-    for (const approach of criticalOrHigh) {
+    const criticalApproaches = closeApproaches.filter((a) => (RISK_SEVERITY[a.riskLevel] ?? 0) >= ALERT_MIN_SEVERITY);
+    currentAlertKeysByTarget.set(target.noradId, new Set(criticalApproaches.map((a) => a.otherNoradId)));
+    for (const approach of criticalApproaches) {
       activeAlertRows.push({
         norad_id: target.noradId,
         satellite_name: target.name,
@@ -266,7 +269,7 @@ export async function runConjunctionScan() {
     if (error) console.error("Failed to upsert active_alerts:", error);
   }
 
-  // A pair that no longer shows up as high/critical for a target we DID
+  // A pair that no longer shows up as critical for a target we DID
   // rescan this round (cooled off, or dropped out of range entirely) needs
   // its stale active_alerts row removed — one read + one delete, not one
   // per target.

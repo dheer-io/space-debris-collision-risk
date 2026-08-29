@@ -686,6 +686,40 @@ body.explore-mode .satellite-panel {
   color: var(--text-dim);
 }
 
+/* Deliberately louder than every other icon in this card (info-trigger,
+   the "+" add buttons) — this opens a whole modal, not a hover detail, so
+   it should read as clearly clickable rather than blend into the row. */
+.satellite-card-chart-btn {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: 0 0 8px 1px rgba(77, 159, 255, 0.55);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.satellite-card-chart-btn:hover,
+.satellite-card-chart-btn:focus-visible {
+  transform: scale(1.15);
+  box-shadow: 0 0 14px 2px rgba(77, 159, 255, 0.8);
+}
+
+.satellite-card-chart-btn svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
 .satellite-card-remove {
   flex: none;
   appearance: none;
@@ -1689,5 +1723,150 @@ body.explore-mode .satellite-panel {
 
   .section {
     padding: 4.5rem 6vw;
+  }
+}
+
+/* DISTANCE CHART MODAL — built dynamically by distanceChart.js, not part of
+   index.html's own markup. Sits above everything, including the
+   satellite-panel dashboard (z-index 2) and its own scroll/interaction. */
+
+.distance-chart-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.distance-chart-modal--open {
+  display: flex;
+}
+
+.distance-chart-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.distance-chart-panel {
+  position: relative;
+  width: min(700px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background-color: #10141f;
+  border: 1px solid var(--border);
+  box-shadow: 0 30px 90px -22px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(77, 159, 255, 0.06);
+  padding: 1.75rem;
+}
+
+.distance-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.distance-chart-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.distance-chart-close {
+  flex: none;
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 1.6rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+  transition: color 0.15s ease;
+}
+
+.distance-chart-close:hover {
+  color: var(--danger);
+}
+
+.distance-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.distance-chart-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.distance-chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.distance-chart-axis-label {
+  fill: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.distance-chart-empty {
+  margin: 2rem 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+
+.distance-chart-legend {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.2rem;
+}
+
+.distance-chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.distance-chart-legend .id {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.distance-chart-legend-risk {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.distance-chart-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+@media (max-width: 640px) {
+  .distance-chart-panel {
+    padding: 1.25rem;
   }
 }
