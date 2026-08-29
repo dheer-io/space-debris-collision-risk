@@ -59,3 +59,17 @@ jobs:
         run: gh workflow run deploy-pages.yml --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tells the API to pull the data it just fetched, rescan every watched
+      # satellite, and send any new Telegram alerts. Skipped entirely if the
+      # backend isn't deployed yet (secret unset) so this workflow keeps
+      # working on its own either way.
+      - name: Trigger backend rescan
+        if: ${{ env.API_BASE_URL != '' }}
+        run: |
+          curl --fail --silent --show-error \
+            -X POST "$API_BASE_URL/api/refresh" \
+            -H "x-refresh-secret: $REFRESH_SECRET"
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          REFRESH_SECRET: ${{ secrets.REFRESH_SECRET }}

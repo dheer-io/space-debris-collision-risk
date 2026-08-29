@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { createSphereLine } from "./threeGeoJSON.js";
 import { createSatrec, propagateToGeodetic, computeOrbitPath, EARTH_RADIUS_KM } from "./orbitalMechanics.js";
-import { RISK_BANDS, MIN_REPORTABLE_KM, CONJUNCTION_SCREEN_KM, orbitalAltitudeBand } from "./conjunctionMath.js";
+import { RISK_BANDS, MIN_REPORTABLE_KM, CONJUNCTION_SCREEN_KM, orbitalAltitudeBand } from "../../shared/conjunctionMath.js";
 
 const MAX_SELECTIONS = 8;
 

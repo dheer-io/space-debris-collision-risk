@@ -1,0 +1,9 @@
+{
+  "name": "space-debris-shared",
+  "private": true,
+  "type": "module",
+  "description": "Conjunction-math module shared by frontend/ (browser, satellite.js via CDN import map) and backend/ (Node, satellite.js from here).",
+  "dependencies": {
+    "satellite.js": "^7.1.0"
+  }
+}

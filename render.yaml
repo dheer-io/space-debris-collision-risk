@@ -1,0 +1,26 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# In the Render dashboard: New -> Blueprint -> point at this repo. Render
+# reads this file and creates the service below; secrets marked sync:false
+# have to be filled in by hand afterward (Render dashboard -> service ->
+# Environment), since they obviously can't live in this committed file.
+
+services:
+  - type: web
+    name: space-debris-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: REFRESH_SECRET
+        sync: false

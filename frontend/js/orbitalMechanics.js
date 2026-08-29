@@ -48,5 +48,5 @@ export function computeOrbitPath(satrec, atDate, globeRadius, segments = DEFAULT
   return { points, gmstSnapshot };
 }
 
-// Conjunction/risk math lives in conjunctionMath.js instead — it's imported
-// by the Worker, which shouldn't have to pull in three.js via this file.
+// Conjunction/risk math lives in shared/conjunctionMath.js instead, so the
+// backend can reuse it too — neither side should have to pull in three.js.

@@ -1,7 +1,12 @@
-// Conjunction (close-approach) screening + risk scoring. Separate from
-// orbitalMechanics.js because this is imported by conjunctionWorker.js (a
-// Web Worker, no DOM/three.js). createSatrec is duplicated here for the
-// same reason — importing it from orbitalMechanics.js would drag three.js in.
+// Conjunction (close-approach) screening + risk scoring. Lives outside both
+// frontend/ and backend/ because both sides use it: the frontend imports it
+// directly (satellite.js resolved via the browser import map) for the
+// single-satellite screen, and the backend imports it (satellite.js resolved
+// via shared/node_modules) for the catalog-wide scan behind the API. It's
+// also why this stays framework-free — no DOM, no three.js, pure math.
+//
+// conjunctionWorker.js can't import this (classic Worker, no ESM `import`)
+// so it carries its own hand-synced copy — see the comment at its top.
 
 import * as satellite from "satellite.js";
 
