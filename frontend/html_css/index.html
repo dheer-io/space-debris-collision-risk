@@ -145,9 +145,23 @@
                 <h3>Close Approaches &amp; Alerts</h3>
                 <p>
                   Browse every close approach for each tracked satellite,
-                  grouped by satellite, plus a standing list of the
-                  Critical/High risk approaches across everything you're
-                  tracking.
+                  grouped by satellite, plus a live Alerts feed pulled
+                  straight from the backend's own catalog-wide scan —
+                  every Critical risk approach right now, not just the
+                  ones you're tracking here.
+                </p>
+              </div>
+            </div>
+            <div class="feature-row">
+              <span class="feature-index">05</span>
+              <span class="feature-icon" aria-hidden="true"></span>
+              <div class="feature-copy">
+                <h3>Distance-Over-Time Charts</h3>
+                <p>
+                  Click the chart icon next to any tracked satellite to
+                  plot its distance to each nearby object across the next
+                  5 hours — computed live in the browser, not a stored
+                  snapshot.
                 </p>
               </div>
             </div>
@@ -186,13 +200,15 @@
             <h3>Telegram bot</h3>
             <p>
               Get pinged directly when a satellite you care about is
-              heading into a high or critical risk close approach — no
-              need to keep this page open.
+              heading into a critical risk close approach — no need to
+              keep this page open.
             </p>
             <ul class="help-command-list">
               <li><code>/watch &lt;NORAD id or name&gt;</code> start watching a satellite</li>
               <li><code>/unwatch &lt;NORAD id or name&gt;</code> stop watching</li>
               <li><code>/list</code> see what you're watching</li>
+              <li><code>/lookup &lt;NORAD id or name&gt;</code> live scan any object right now</li>
+              <li><code>/alerts</code> every critical-risk approach, catalog-wide</li>
             </ul>
           </div>
 
@@ -205,7 +221,7 @@
             <ul class="help-command-list">
               <li><code>GET /api/satellites/:noradId</code> TLE + info for one object</li>
               <li><code>GET /api/satellites/:noradId/conjunctions</code> its latest close approaches</li>
-              <li><code>GET /api/leaderboard</code> closest predicted approaches across everything tracked</li>
+              <li><code>GET /api/alerts</code> every critical-risk approach, catalog-wide, right now</li>
             </ul>
           </div>
         </section>
