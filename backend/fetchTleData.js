@@ -26,21 +26,61 @@ const GROUPS = [
 // Node's fetch() sends no User-Agent by default; CelesTrak is more likely to treat that as a bot.
 const USER_AGENT = "space-debris-collision-risk-fetch-tle/1.0";
 
+// CelesTrak has documented periodic outages and blocks IPs (including
+// shared cloud/datacenter ranges — which is exactly what a GitHub Actions
+// runner is) that generate too many errors. A couple of short retries
+// costs nothing and recovers a transient connection blip; it won't help
+// during an actual multi-minute outage or a sustained IP block, which is
+// a CelesTrak-side condition no amount of client-side retrying fixes.
+const FETCH_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
+// Node's fetch has NO default timeout — a blocked/blackholed connection
+// (exactly what an IP-level block looks like, as opposed to a fast
+// "connection refused") can hang on the OS's own TCP connect timeout,
+// which is often 60-130+ seconds. Without this, 9 groups x 3 attempts each
+// could take the better part of an hour to all fail, instead of the ~4.5
+// minutes worst case this bounds it to.
+const FETCH_TIMEOUT_MS = 10_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchGroup(group) {
   const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group.name}&FORMAT=tle`;
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  if (!response.ok) {
-    // CelesTrak rate-limits to once per 2h and returns 403 if polled sooner —
-    // expected on a re-run, not a bug (the scheduled workflow stays above 2h).
-    throw new Error(`HTTP ${response.status}`);
-  }
 
-  const text = await response.text();
-  if (!text.includes("\n1 ")) {
-    throw new Error("response doesn't look like TLE data (bad group name or login-gated?)");
-  }
+  let lastError;
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAY_MS);
 
-  return parseTle(text, group.type);
+    try {
+      const response = await fetch(url, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        // CelesTrak rate-limits to once per 2h and returns 403 if polled
+        // sooner — expected on a re-run, not a bug (the scheduled workflow
+        // stays above 2h). Retrying won't fix a 403, so fail immediately.
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const text = await response.text();
+      if (!text.includes("\n1 ")) {
+        throw new Error("response doesn't look like TLE data (bad group name or login-gated?)");
+      }
+
+      return parseTle(text, group.type);
+    } catch (error) {
+      lastError = error;
+      // A real HTTP response (even an error one) means CelesTrak is up and
+      // responding — retrying the exact same request won't change that.
+      // Only retry on network-level failures (connection refused/timed
+      // out/reset), where a transient blip is actually plausible.
+      if (error.message.startsWith("HTTP ") || error.message.startsWith("response doesn't look like")) break;
+    }
+  }
+  throw lastError;
 }
 
 // A TLE record is 3 lines: name, line 1, line 2. The only thing we pull out
