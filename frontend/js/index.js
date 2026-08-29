@@ -256,6 +256,26 @@ function exitExploreMode() {
 exploreToggles.forEach((toggle) => toggle.addEventListener("click", enterExploreMode));
 exploreExit?.addEventListener("click", exitExploreMode);
 
+// NAV — mobile menu is a plain open/closed class toggle; desktop never
+// triggers it since .site-nav-toggle is display:none above 700px.
+const siteNav = document.getElementById("site-nav");
+const siteNavToggle = document.getElementById("site-nav-toggle");
+siteNavToggle?.addEventListener("click", () => {
+  const isOpen = siteNav.classList.toggle("site-nav--open");
+  siteNavToggle.setAttribute("aria-expanded", String(isOpen));
+});
+// Scoped to .site-nav-links, not all of .site-nav — #site-nav-toggle is a
+// button too, and closing here after its own handler just opened it would
+// fight that handler on the very same click.
+// Closing on link click matters even for the explore-toggle button here —
+// otherwise the menu stays open underneath once .page slides away.
+document.querySelectorAll("#site-nav-links a, #site-nav-links button").forEach((el) => {
+  el.addEventListener("click", () => {
+    siteNav.classList.remove("site-nav--open");
+    siteNavToggle?.setAttribute("aria-expanded", "false");
+  });
+});
+
 function animate() {
   if (performance.now() < resizeSyncUntil) {
     syncRendererSize();

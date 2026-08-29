@@ -1104,6 +1104,192 @@ body.explore-mode .satellite-panel {
   }
 }
 
+/* NAV — deliberately a child of .page, not a sibling like .explore-exit, so
+   it inherits .page's own slide-away transform in explore mode for free
+   (see the comment on .explore-exit for why a transformed ancestor does
+   this to a position:fixed descendant). */
+.site-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 6vw;
+  background: rgba(3, 7, 18, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-nav-brand svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--accent);
+  flex: none;
+}
+
+.site-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.site-nav-links a {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.site-nav-links a:hover {
+  color: var(--accent);
+}
+
+.site-nav-cta.btn-primary {
+  padding: 0.6rem 1.4rem;
+  font-size: 0.78rem;
+}
+
+.site-nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.site-nav-toggle span {
+  display: block;
+  width: 14px;
+  height: 2px;
+  margin: 0 auto;
+  background: var(--text);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+@media (max-width: 700px) {
+  .site-nav-toggle {
+    display: flex;
+  }
+
+  .site-nav-links {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    background: rgba(3, 7, 18, 0.96);
+    border-bottom: 1px solid var(--border);
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.25s ease;
+  }
+
+  .site-nav-links a {
+    padding: 1rem 6vw;
+    border-top: 1px solid var(--border);
+  }
+
+  .site-nav-cta.btn-primary {
+    display: block;
+    margin: 1rem 6vw 1.25rem;
+    text-align: center;
+  }
+
+  .site-nav--open .site-nav-links {
+    max-height: 24rem;
+    opacity: 1;
+  }
+
+  .site-nav--open .site-nav-toggle span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+
+  .site-nav--open .site-nav-toggle span:nth-child(2) {
+    opacity: 0;
+  }
+
+  .site-nav--open .site-nav-toggle span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+}
+
+/* HELP & ABOUT */
+
+.help-block {
+  margin-top: 2.5rem;
+}
+
+.help-block h3 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.6rem;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.9);
+}
+
+.help-command-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 46rem;
+}
+
+.help-command-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
+.help-command-list code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0.2rem 0.5rem;
+}
+
 /* HERO */
 
 .hero {
