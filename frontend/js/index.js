@@ -276,6 +276,16 @@ document.querySelectorAll("#site-nav-links a, #site-nav-links button").forEach((
   });
 });
 
+// Nav has no background at rest (see style.css) — .site-nav--scrolled fades
+// in a faint scrim only once there's actual page content behind the bar,
+// not from scroll position 0.
+const NAV_SCROLL_THRESHOLD_PX = 40;
+function updateNavScrolledState() {
+  siteNav?.classList.toggle("site-nav--scrolled", window.scrollY > NAV_SCROLL_THRESHOLD_PX);
+}
+window.addEventListener("scroll", updateNavScrolledState, { passive: true });
+updateNavScrolledState();
+
 function animate() {
   if (performance.now() < resizeSyncUntil) {
     syncRendererSize();

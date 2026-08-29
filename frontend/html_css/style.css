@@ -1107,7 +1107,13 @@ body.explore-mode .satellite-panel {
 /* NAV — deliberately a child of .page, not a sibling like .explore-exit, so
    it inherits .page's own slide-away transform in explore mode for free
    (see the comment on .explore-exit for why a transformed ancestor does
-   this to a position:fixed descendant). */
+   this to a position:fixed descendant).
+
+   No filled bar by design — at rest this is just text and hairlines
+   floating over the hero. .site-nav--scrolled (toggled from index.js past
+   a small scroll threshold) fades in a faint top-to-bottom gradient, only
+   there so text stays legible over whatever's scrolled underneath, and a
+   single hairline anchors the bar once it's no longer over open hero space. */
 .site-nav {
   position: fixed;
   top: 0;
@@ -1117,43 +1123,74 @@ body.explore-mode .satellite-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem 6vw;
-  background: rgba(3, 7, 18, 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
+  gap: 1.5rem;
+  padding: 1.9rem 6vw;
+  background: transparent;
+  transition: background 0.5s ease, padding 0.4s ease;
+}
+
+.site-nav::after {
+  content: "";
+  position: absolute;
+  left: 6vw;
+  right: 6vw;
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.site-nav--scrolled {
+  padding-top: 1.3rem;
+  padding-bottom: 1.3rem;
+  background: linear-gradient(180deg, rgba(3, 7, 18, 0.55) 0%, rgba(3, 7, 18, 0.22) 65%, transparent 100%);
+}
+
+.site-nav--scrolled::after {
+  opacity: 1;
 }
 
 .site-nav-brand {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.7rem;
   font-family: var(--font-display);
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text);
   text-decoration: none;
 }
 
 .site-nav-brand svg {
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
   fill: var(--accent);
   flex: none;
+}
+
+/* The "simple line" next to the wordmark — a thin rule instead of a boxed
+   logo lockup, echoing the hairline borders used everywhere else already. */
+.site-nav-brand::after {
+  content: "";
+  width: 2.25rem;
+  height: 1px;
+  background: var(--border);
 }
 
 .site-nav-links {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 2.5rem;
 }
 
 .site-nav-links a {
+  position: relative;
+  padding-bottom: 0.35rem;
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -1161,35 +1198,68 @@ body.explore-mode .satellite-panel {
   transition: color 0.2s ease;
 }
 
-.site-nav-links a:hover {
-  color: var(--accent);
+/* Underline grows in from the left on hover instead of a color-only swap —
+   another "line", not another filled shape. */
+.site-nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: 0;
+  height: 1px;
+  background: var(--accent);
+  transition: right 0.25s ease;
 }
 
+.site-nav-links a:hover,
+.site-nav-links a:focus-visible {
+  color: var(--text);
+}
+
+.site-nav-links a:hover::after,
+.site-nav-links a:focus-visible::after {
+  right: 0;
+}
+
+/* Outlined, not filled — the hero already has a solid accent CTA; the nav's
+   own call to action reads as part of the same line-based nav instead of a
+   second filled shape competing with it. */
 .site-nav-cta.btn-primary {
-  padding: 0.6rem 1.4rem;
-  font-size: 0.78rem;
+  padding: 0.7rem 1.6rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.site-nav-cta.btn-primary:hover {
+  color: var(--bg);
+  background: var(--accent);
+  transform: none;
+  box-shadow: 0 10px 30px -10px var(--accent);
 }
 
 .site-nav-toggle {
   display: none;
   flex-direction: column;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   appearance: none;
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: none;
   cursor: pointer;
   padding: 0;
 }
 
 .site-nav-toggle span {
   display: block;
-  width: 14px;
-  height: 2px;
+  width: 18px;
+  height: 1px;
   margin: 0 auto;
   background: var(--text);
   transition: transform 0.2s ease, opacity 0.2s ease;
@@ -1221,6 +1291,10 @@ body.explore-mode .satellite-panel {
     border-top: 1px solid var(--border);
   }
 
+  .site-nav-links a::after {
+    display: none;
+  }
+
   .site-nav-cta.btn-primary {
     display: block;
     margin: 1rem 6vw 1.25rem;
@@ -1233,7 +1307,7 @@ body.explore-mode .satellite-panel {
   }
 
   .site-nav--open .site-nav-toggle span:nth-child(1) {
-    transform: translateY(7px) rotate(45deg);
+    transform: translateY(8px) rotate(45deg);
   }
 
   .site-nav--open .site-nav-toggle span:nth-child(2) {
@@ -1241,7 +1315,7 @@ body.explore-mode .satellite-panel {
   }
 
   .site-nav--open .site-nav-toggle span:nth-child(3) {
-    transform: translateY(-7px) rotate(-45deg);
+    transform: translateY(-8px) rotate(-45deg);
   }
 }
 
