@@ -131,19 +131,31 @@ async function alertWatchers(target, closeApproaches) {
     for (const watcher of watchers) {
       if (!(await shouldAlert(watcher.id, approach.otherNoradId, severity))) continue;
 
-      const whenLocal = approach.closestApproachAt.toUTCString();
-      await sendTelegramMessage(
-        watcher.telegram_chat_id,
-        `⚠️ ${approach.riskLevel.toUpperCase()} risk for ${target.name} (${target.noradId}): ` +
-          `predicted ${approach.distanceKm.toFixed(2)} km from ${approach.otherName} (${approach.otherNoradId}) at ${whenLocal}.`,
-      );
+      // One watcher's bad chat id (bot blocked, chat deleted, ...) or a
+      // one-off insert failure shouldn't take down the rest of the scan —
+      // every other target/watcher still needs to run. Log and move on.
+      try {
+        const whenLocal = approach.closestApproachAt.toUTCString();
+        await sendTelegramMessage(
+          watcher.telegram_chat_id,
+          `⚠️ ${approach.riskLevel.toUpperCase()} risk for ${target.name} (${target.noradId}): ` +
+            `predicted ${approach.distanceKm.toFixed(2)} km from ${approach.otherName} (${approach.otherNoradId}) at ${whenLocal}.`,
+        );
 
-      await supabase.from("alerts_sent").insert({
-        watchlist_id: watcher.id,
-        other_norad_id: approach.otherNoradId,
-        risk_level: approach.riskLevel,
-      });
-      alertsSent++;
+        // Recorded even if this throws below wouldn't help — if this insert
+        // itself fails, log it loudly: silently losing it means shouldAlert()
+        // never sees the alert and re-pages this watcher every future scan.
+        const { error: insertError } = await supabase.from("alerts_sent").insert({
+          watchlist_id: watcher.id,
+          other_norad_id: approach.otherNoradId,
+          risk_level: approach.riskLevel,
+        });
+        if (insertError) throw insertError;
+
+        alertsSent++;
+      } catch (error) {
+        console.error(`Failed to alert watcher ${watcher.id} about ${approach.otherNoradId}:`, error);
+      }
     }
   }
   return alertsSent;

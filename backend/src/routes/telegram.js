@@ -100,7 +100,11 @@ telegramRouter.post("/webhook", async (req, res) => {
     const chatId = req.body?.message?.chat?.id;
     if (!text || !chatId) return;
 
-    const [command, ...rest] = text.trim().split(/\s+/);
+    const [rawCommand, ...rest] = text.trim().split(/\s+/);
+    // Telegram appends "@BotName" to commands in group chats (and sometimes
+    // in DMs too, depending on client) — "/watch@MySatBot 25544" is the same
+    // command as "/watch 25544".
+    const command = rawCommand.split("@")[0];
     const argument = rest.join(" ");
 
     if (command === "/watch") await handleWatch(chatId, argument);
