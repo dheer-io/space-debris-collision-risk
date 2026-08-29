@@ -162,11 +162,16 @@ export function findMinSeparation(satrecA, satrecB, fromDate, windowMinutes, scr
 // scores collision PROBABILITY (needs object size + covariance, not in a
 // TLE) — miss distance is the practical TLE-only proxy, thresholds picked
 // to be a legible signal rather than a probability claim.
+//
+// Tightened from the original {1, 2, 5, 25} — that let almost anything
+// passing within 25km register as at least "low," which on a ~19k-object
+// catalog meant a huge, not-very-meaningful flood of hits. This keeps
+// "low" as the outer bound at 10km and scales the rest down with it.
 export const RISK_BANDS = [
-  { level: "critical", label: "Critical", maxKm: 1 },
-  { level: "high", label: "High", maxKm: 2 },
-  { level: "moderate", label: "Moderate", maxKm: 5 },
-  { level: "low", label: "Low", maxKm: 25 },
+  { level: "critical", label: "Critical", maxKm: 0.5 },
+  { level: "high", label: "High", maxKm: 1 },
+  { level: "moderate", label: "Moderate", maxKm: 3 },
+  { level: "low", label: "Low", maxKm: 10 },
 ];
 
 // Anything farther than this is ignored entirely.
@@ -174,8 +179,10 @@ export const CONJUNCTION_SCREEN_KM = RISK_BANDS[RISK_BANDS.length - 1].maxKm;
 
 // Anything closer than this is also ignored — catalogs track a station's
 // individual modules as separate NORAD IDs sharing near-identical TLEs,
-// which would otherwise report ~0km as a false "conjunction".
-export const MIN_REPORTABLE_KM = 0.5;
+// which would otherwise report ~0km as a false "conjunction". Lowered
+// alongside the bands above so "critical" (now capping at 0.5km) still
+// has real room between this floor and that ceiling.
+export const MIN_REPORTABLE_KM = 0.2;
 
 export function riskForDistanceKm(distanceKm) {
   if (distanceKm < MIN_REPORTABLE_KM) return null;

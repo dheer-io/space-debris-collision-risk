@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { satellitesRouter } from "./routes/satellites.js";
 import { leaderboardRouter } from "./routes/leaderboard.js";
+import { alertsRouter } from "./routes/alerts.js";
 import { refreshRouter } from "./routes/refresh.js";
 import { telegramRouter } from "./routes/telegram.js";
 
@@ -19,7 +20,13 @@ app.get("/", (req, res) => {
   res.json({
     name: "space-debris-collision-risk API",
     docs: "https://github.com/dheer-io/space-debris-collision-risk/blob/main/backend/README.md",
-    endpoints: ["/api/health", "/api/satellites/:noradId", "/api/satellites/:noradId/conjunctions", "/api/leaderboard"],
+    endpoints: [
+      "/api/health",
+      "/api/satellites/:noradId",
+      "/api/satellites/:noradId/conjunctions",
+      "/api/leaderboard",
+      "/api/alerts",
+    ],
   });
 });
 
@@ -27,6 +34,7 @@ app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use("/api/satellites", satellitesRouter);
 app.use("/api/leaderboard", leaderboardRouter);
+app.use("/api/alerts", alertsRouter);
 app.use("/api/refresh", refreshRouter);
 app.use("/api/telegram", telegramRouter);
 

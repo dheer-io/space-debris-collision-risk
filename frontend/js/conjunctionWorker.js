@@ -152,17 +152,17 @@ function findMinSeparation(satrecA, satrecB, fromDate, windowMinutes, screenKm =
 // Kept in sync by hand with conjunctionMath.js's copy — see that file for
 // why miss distance (not probability) is the scoring basis.
 const RISK_BANDS = [
-  { level: "critical", label: "Critical", maxKm: 1 },
-  { level: "high", label: "High", maxKm: 2 },
-  { level: "moderate", label: "Moderate", maxKm: 5 },
-  { level: "low", label: "Low", maxKm: 25 },
+  { level: "critical", label: "Critical", maxKm: 0.5 },
+  { level: "high", label: "High", maxKm: 1 },
+  { level: "moderate", label: "Moderate", maxKm: 3 },
+  { level: "low", label: "Low", maxKm: 10 },
 ];
 
 const CONJUNCTION_SCREEN_KM = RISK_BANDS[RISK_BANDS.length - 1].maxKm;
 
 // Below this, treat as a same-object data artifact (e.g. a station's modules
 // sharing near-identical TLEs under separate NORAD IDs), not a real conjunction.
-const MIN_REPORTABLE_KM = 0.5;
+const MIN_REPORTABLE_KM = 0.2;
 
 function riskForDistanceKm(distanceKm) {
   if (distanceKm < MIN_REPORTABLE_KM) return null;

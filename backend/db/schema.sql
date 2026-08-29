@@ -44,3 +44,28 @@ create table if not exists alerts_sent (
 
 create index if not exists alerts_sent_recent_idx
   on alerts_sent (watchlist_id, other_norad_id, sent_at desc);
+
+-- The live "what's high/critical risk right now" set — unlike
+-- conjunction_events (an ever-growing history), this holds exactly one row
+-- per (norad_id, other_norad_id) pair and is kept in sync by
+-- runConjunctionScan(): upserted while a pair stays high/critical, deleted
+-- once it cools off, gets rescanned as no-longer-a-match, or its predicted
+-- closest approach time has simply passed. GET /api/alerts reads straight
+-- from this table, so it never needs its own separate "is this expired"
+-- filtering logic — expiry already happened by the time a request arrives.
+create table if not exists active_alerts (
+  id bigint generated always as identity primary key,
+  norad_id integer not null,
+  satellite_name text not null,
+  other_norad_id integer not null,
+  other_name text not null,
+  distance_km double precision not null,
+  risk_level text not null,
+  closest_approach_at timestamptz not null,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  unique (norad_id, other_norad_id)
+);
+
+create index if not exists active_alerts_severity_idx
+  on active_alerts (risk_level, distance_km);
