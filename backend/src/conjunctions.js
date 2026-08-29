@@ -28,6 +28,13 @@ import { sendTelegramMessage } from "./telegram.js";
 const SCREEN_WINDOW_MINUTES = 5 * 60; // same look-ahead window the frontend uses
 const SPOTLIGHT_NORAD_IDS = [25544]; // ISS (ZARYA) — always scanned, watched or not
 
+// sendTelegramMessage now always sends parse_mode: "HTML" — satellite names
+// come from CelesTrak and are untrusted-ish, so anything interpolated into
+// a message needs this (same reasoning as routes/telegram.js's own copy).
+function htmlEscape(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // 400 timed out for real in production. 150 measured at 52.7s in
 // production for 151 targets (~349ms/target — nearly 9x the ~37ms/target
 // measured on local compute, which is what 400 and then 150 were both
@@ -162,8 +169,12 @@ async function alertWatchers(target, closeApproaches, watchers) {
         const whenLocal = approach.closestApproachAt.toUTCString();
         await sendTelegramMessage(
           watcher.telegram_chat_id,
-          `⚠️ ${approach.riskLevel.toUpperCase()} risk for ${target.name} (${target.noradId}): ` +
-            `predicted ${approach.distanceKm.toFixed(2)} km from ${approach.otherName} (${approach.otherNoradId}) at ${whenLocal}.`,
+          `⚠️ <b>${approach.riskLevel.toUpperCase()} RISK</b>\n\n` +
+            `<b>${htmlEscape(target.name)}</b> <code>#${target.noradId}</code>\n` +
+            `vs\n` +
+            `<b>${htmlEscape(approach.otherName)}</b> <code>#${approach.otherNoradId}</code>\n\n` +
+            `📏 Distance: <b>${approach.distanceKm.toFixed(2)} km</b>\n` +
+            `🕒 When: ${whenLocal}`,
         );
 
         // Recorded even if this throws below wouldn't help — if this insert

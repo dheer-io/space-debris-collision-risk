@@ -2,11 +2,13 @@ import { env } from "./env.js";
 
 const API_BASE = `https://api.telegram.org/bot${env.telegramBotToken}`;
 
+// HTML parse mode everywhere — callers build messages with <b>, bullets,
+// etc. (see routes/telegram.js's htmlEscape) instead of flat text.
 export async function sendTelegramMessage(chatId, text) {
   const response = await fetch(`${API_BASE}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
   });
 
   if (!response.ok) {

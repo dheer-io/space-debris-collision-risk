@@ -12,23 +12,42 @@ const MAX_MATCHES_SHOWN = 5;
 const LOOKUP_RESULTS_SHOWN = 5;
 const ALERTS_SHOWN = 10;
 
+// Telegram's HTML parse mode only requires escaping these three — satellite
+// names come from CelesTrak and are untrusted-ish, so anything interpolated
+// into a message needs this (see htmlEscape calls below), same reasoning as
+// the frontend's escapeHtml but for Telegram's smaller HTML subset.
+function htmlEscape(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const RISK_EMOJI = { critical: "⚠️", high: "🟠", moderate: "🟡", low: "🟢" };
+
 const HELP_TEXT = [
+  "🛰 <b>Space Debris Tracker</b>",
   "I track close approaches for satellites and debris.",
   "",
-  "/watch <NORAD id or name> — get alerted on critical risk close approaches",
-  "/unwatch <NORAD id or name> — stop watching",
-  "/list — show what you're watching",
-  "/lookup <NORAD id or name> — live scan for one object's closest approaches right now",
-  "/alerts — everything currently critical risk, catalog-wide",
-].join("\n");
+  "<b>/watch</b> <NORAD id or name> — get alerted on critical risk close approaches",
+  "<b>/unwatch</b> <NORAD id or name> — stop watching",
+  "<b>/list</b> — show what you're watching",
+  "<b>/lookup</b> <NORAD id or name> — live scan for one object's closest approaches right now",
+  "<b>/alerts</b> — everything currently critical risk, catalog-wide",
+]
+  .map((line) => line.replace(/<NORAD id or name>/g, "&lt;NORAD id or name&gt;"))
+  .join("\n");
 
+// One line per close approach, used by both /lookup (camelCase, live-
+// computed) and /alerts (snake_case, straight from Supabase).
 function formatApproachLine(approach) {
   const otherNoradId = approach.otherNoradId ?? approach.other_norad_id;
   const otherName = approach.otherName ?? approach.other_name;
   const distanceKm = approach.distanceKm ?? approach.distance_km;
   const riskLevel = approach.riskLevel ?? approach.risk_level;
   const closestApproachAt = approach.closestApproachAt ?? new Date(approach.closest_approach_at);
-  return `${riskLevel.toUpperCase()} — ${otherName} (${otherNoradId}): ${distanceKm.toFixed(2)} km at ${closestApproachAt.toUTCString()}`;
+  const emoji = RISK_EMOJI[riskLevel] ?? "•";
+  return (
+    `${emoji} <b>${riskLevel.toUpperCase()}</b> — ${htmlEscape(otherName)} <code>#${otherNoradId}</code>\n` +
+    `   ${distanceKm.toFixed(2)} km · ${closestApproachAt.toUTCString()}`
+  );
 }
 
 async function resolveOneMatch(query, chatId) {
@@ -38,18 +57,24 @@ async function resolveOneMatch(query, chatId) {
   if (matches.length === 1) return matches[0];
 
   if (matches.length === 0) {
-    await sendTelegramMessage(chatId, `No satellite matches "${query}". Try a NORAD id, or part of its name.`);
+    await sendTelegramMessage(chatId, `No satellite matches "${htmlEscape(query)}". Try a NORAD id, or part of its name.`);
     return null;
   }
 
-  const shown = matches.slice(0, MAX_MATCHES_SHOWN).map((m) => `${m.norad_id} — ${m.name}`).join("\n");
+  const shown = matches
+    .slice(0, MAX_MATCHES_SHOWN)
+    .map((m) => `• <code>${m.norad_id}</code> — ${htmlEscape(m.name)}`)
+    .join("\n");
   const more = matches.length > MAX_MATCHES_SHOWN ? `\n…and ${matches.length - MAX_MATCHES_SHOWN} more.` : "";
-  await sendTelegramMessage(chatId, `"${query}" matches more than one object — try the NORAD id instead:\n${shown}${more}`);
+  await sendTelegramMessage(
+    chatId,
+    `"${htmlEscape(query)}" matches more than one object — try the NORAD id instead:\n${shown}${more}`,
+  );
   return null;
 }
 
 async function handleWatch(chatId, query) {
-  if (!query) return sendTelegramMessage(chatId, "Usage: /watch <NORAD id or name>");
+  if (!query) return sendTelegramMessage(chatId, "Usage: <b>/watch</b> &lt;NORAD id or name&gt;");
 
   const object = await resolveOneMatch(query, chatId);
   if (!object) return;
@@ -64,12 +89,13 @@ async function handleWatch(chatId, query) {
 
   await sendTelegramMessage(
     chatId,
-    `Watching ${object.name} (${object.norad_id}). I'll message you here if it's predicted to come within critical risk range of something.`,
+    `✅ Now watching <b>${htmlEscape(object.name)}</b> <code>#${object.norad_id}</code>\n\n` +
+      `You'll get a message here if it's predicted to come within critical risk range of something.`,
   );
 }
 
 async function handleUnwatch(chatId, query) {
-  if (!query) return sendTelegramMessage(chatId, "Usage: /unwatch <NORAD id or name>");
+  if (!query) return sendTelegramMessage(chatId, "Usage: <b>/unwatch</b> &lt;NORAD id or name&gt;");
 
   const object = await resolveOneMatch(query, chatId);
   if (!object) return;
@@ -81,7 +107,7 @@ async function handleUnwatch(chatId, query) {
     .eq("norad_id", object.norad_id);
   if (error) throw error;
 
-  await sendTelegramMessage(chatId, `Stopped watching ${object.name} (${object.norad_id}).`);
+  await sendTelegramMessage(chatId, `🛑 Stopped watching <b>${htmlEscape(object.name)}</b> <code>#${object.norad_id}</code>.`);
 }
 
 async function handleList(chatId) {
@@ -92,10 +118,12 @@ async function handleList(chatId) {
     .order("satellite_name");
   if (error) throw error;
 
-  if (data.length === 0) return sendTelegramMessage(chatId, "You're not watching anything yet. Try /watch <NORAD id or name>.");
+  if (data.length === 0) {
+    return sendTelegramMessage(chatId, "You're not watching anything yet. Try <b>/watch</b> &lt;NORAD id or name&gt;.");
+  }
 
-  const list = data.map((row) => `${row.satellite_name} (${row.norad_id})`).join("\n");
-  await sendTelegramMessage(chatId, `Watching:\n${list}`);
+  const list = data.map((row) => `• ${htmlEscape(row.satellite_name)} <code>#${row.norad_id}</code>`).join("\n");
+  await sendTelegramMessage(chatId, `📡 <b>Watching</b>\n\n${list}`);
 }
 
 // Runs the same live single-target scan runConjunctionScan() does, on
@@ -103,7 +131,7 @@ async function handleList(chatId) {
 // works for any object regardless of whether it happened to be in a
 // recent scheduled scan's rotation batch.
 async function handleLookup(chatId, query) {
-  if (!query) return sendTelegramMessage(chatId, "Usage: /lookup <NORAD id or name>");
+  if (!query) return sendTelegramMessage(chatId, "Usage: <b>/lookup</b> &lt;NORAD id or name&gt;");
 
   const catalog = await getCatalog();
   const object = await resolveOneMatch(query, chatId);
@@ -112,21 +140,25 @@ async function handleLookup(chatId, query) {
   const screenable = buildScreenableCatalog(catalog.objects);
   const target = screenable.find((entry) => entry.noradId === object.norad_id);
   if (!target) {
-    return sendTelegramMessage(chatId, `${object.name} (${object.norad_id}) has unusable orbital elements right now — can't scan it.`);
-  }
-
-  const closeApproaches = findCloseApproaches(target, screenable);
-  if (closeApproaches.length === 0) {
     return sendTelegramMessage(
       chatId,
-      `${object.name} (${object.norad_id}): nothing within ${CONJUNCTION_SCREEN_KM}km over the next 5 hours.`,
+      `<b>${htmlEscape(object.name)}</b> <code>#${object.norad_id}</code> has unusable orbital elements right now — can't scan it.`,
     );
   }
 
-  const shown = closeApproaches.slice(0, LOOKUP_RESULTS_SHOWN).map(formatApproachLine).join("\n");
+  const closeApproaches = findCloseApproaches(target, screenable);
+  const header = `🔭 <b>${htmlEscape(object.name)}</b> <code>#${object.norad_id}</code>`;
+
+  if (closeApproaches.length === 0) {
+    return sendTelegramMessage(chatId, `${header}\nNothing within ${CONJUNCTION_SCREEN_KM}km over the next 5 hours.`);
+  }
+
+  const shown = closeApproaches.slice(0, LOOKUP_RESULTS_SHOWN).map(formatApproachLine).join("\n\n");
   const more =
-    closeApproaches.length > LOOKUP_RESULTS_SHOWN ? `\n…and ${closeApproaches.length - LOOKUP_RESULTS_SHOWN} more.` : "";
-  await sendTelegramMessage(chatId, `${object.name} (${object.norad_id}) — closest approaches right now:\n${shown}${more}`);
+    closeApproaches.length > LOOKUP_RESULTS_SHOWN
+      ? `\n\n…and ${closeApproaches.length - LOOKUP_RESULTS_SHOWN} more.`
+      : "";
+  await sendTelegramMessage(chatId, `${header}\nClosest approaches right now:\n\n${shown}${more}`);
 }
 
 // Reads active_alerts (see db/schema.sql) — the live critical set kept
@@ -139,14 +171,15 @@ async function handleAlerts(chatId) {
     .limit(ALERTS_SHOWN);
   if (error) throw error;
 
-  if (data.length === 0) return sendTelegramMessage(chatId, "Nothing catalog-wide is critical risk right now.");
+  if (data.length === 0) return sendTelegramMessage(chatId, "🟢 Nothing catalog-wide is critical risk right now.");
 
   const lines = data.map(
     (row) =>
-      `${row.risk_level.toUpperCase()} — ${row.satellite_name} (${row.norad_id}) vs ${row.other_name} (${row.other_norad_id}): ` +
-      `${row.distance_km.toFixed(2)} km at ${new Date(row.closest_approach_at).toUTCString()}`,
+      `⚠️ <b>${htmlEscape(row.satellite_name)}</b> <code>#${row.norad_id}</code> vs ` +
+      `<b>${htmlEscape(row.other_name)}</b> <code>#${row.other_norad_id}</code>\n` +
+      `   ${row.distance_km.toFixed(2)} km · ${new Date(row.closest_approach_at).toUTCString()}`,
   );
-  await sendTelegramMessage(chatId, `Current critical alerts:\n${lines.join("\n")}`);
+  await sendTelegramMessage(chatId, `🚨 <b>Current critical alerts</b>\n\n${lines.join("\n\n")}`);
 }
 
 // Telegram calls this on every message sent to the bot. Registered once via
