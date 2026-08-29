@@ -90,28 +90,34 @@ telegramRouter.post("/webhook", async (req, res) => {
     return res.sendStatus(401);
   }
 
-  // Respond immediately — Telegram retries on non-2xx, and everything below
-  // is a fire-and-forget reply sent back through sendTelegramMessage, not
-  // through this response. A failure past this point can only be logged.
-  res.sendStatus(200);
-
+  // Must await all of this before responding, not respond-then-process —
+  // on a serverless function (unlike a long-running server) the execution
+  // environment can be frozen the instant the response is sent, so any
+  // work still in flight after that point isn't reliably completed. This
+  // was silently eating every single command: the response looked fine,
+  // but handleWatch/etc. never actually finished running.
   try {
     const text = req.body?.message?.text;
     const chatId = req.body?.message?.chat?.id;
-    if (!text || !chatId) return;
 
-    const [rawCommand, ...rest] = text.trim().split(/\s+/);
-    // Telegram appends "@BotName" to commands in group chats (and sometimes
-    // in DMs too, depending on client) — "/watch@MySatBot 25544" is the same
-    // command as "/watch 25544".
-    const command = rawCommand.split("@")[0];
-    const argument = rest.join(" ");
+    if (text && chatId) {
+      const [rawCommand, ...rest] = text.trim().split(/\s+/);
+      // Telegram appends "@BotName" to commands in group chats (and
+      // sometimes in DMs too, depending on client) — "/watch@MySatBot
+      // 25544" is the same command as "/watch 25544".
+      const command = rawCommand.split("@")[0];
+      const argument = rest.join(" ");
 
-    if (command === "/watch") await handleWatch(chatId, argument);
-    else if (command === "/unwatch") await handleUnwatch(chatId, argument);
-    else if (command === "/list") await handleList(chatId);
-    else await sendTelegramMessage(chatId, HELP_TEXT);
+      if (command === "/watch") await handleWatch(chatId, argument);
+      else if (command === "/unwatch") await handleUnwatch(chatId, argument);
+      else if (command === "/list") await handleList(chatId);
+      else await sendTelegramMessage(chatId, HELP_TEXT);
+    }
   } catch (error) {
     console.error("Error handling Telegram webhook:", error);
   }
+
+  // Always 200 once we're actually done — Telegram retries on non-2xx, and
+  // there's nothing it could usefully retry here even on our own error.
+  res.sendStatus(200);
 });
