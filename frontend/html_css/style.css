@@ -1378,19 +1378,8 @@ body.explore-mode .satellite-panel {
   padding: 8vh 6vw;
 }
 
-/* The title/subtitle/CTA need to stay readable through the whole scroll-
-   driven camera move (js/index.js's heroProgress), where the globe swings
-   from off-center to dead-center behind this exact text — a flat opacity
-   tint wasn't enough on its own, so this is a real panel: tint + blur, the
-   same card language as .satellite-panel/.help-command-list elsewhere,
-   just applied to hero text instead of a dashboard. */
 .hero-content {
   max-width: 640px;
-  padding: 3rem 3.25rem;
-  background: rgba(3, 7, 18, 0.62);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
 }
 
 .eyebrow {
@@ -1494,12 +1483,13 @@ body.explore-mode .satellite-panel {
 
 /* The same "vertical rectangle, very low opacity" idea as .site-nav's
    scroll scrim, applied to the reading column instead of the top bar —
-   a touch stronger than the nav's since body copy has to stay legible
-   over a much longer scroll, not just a thin strip. Soft-fades in/out at
-   the very top/bottom instead of a hard-edged box, and sits behind every
-   section via z-index:-1 (safe here specifically because .details is a
-   descendant of .page's own z-index:1 stacking context — see that rule's
-   own comment — so this never sinks below the fixed globe canvas). */
+   kept faint on purpose (text-shadow on the section copy itself already
+   does most of the legibility work; this is just a little extra). Soft-
+   fades in/out at the very top/bottom instead of a hard-edged box, and
+   sits behind every section via z-index:-1 (safe here specifically
+   because .details is a descendant of .page's own z-index:1 stacking
+   context — see that rule's own comment — so this never sinks below the
+   fixed globe canvas). */
 .details::before {
   content: "";
   position: absolute;
@@ -1513,8 +1503,8 @@ body.explore-mode .satellite-panel {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(3, 7, 18, 0.72) 4%,
-    rgba(3, 7, 18, 0.72) 96%,
+    rgba(3, 7, 18, 0.32) 4%,
+    rgba(3, 7, 18, 0.32) 96%,
     transparent 100%
   );
 }
@@ -1688,7 +1678,6 @@ body.explore-mode .satellite-panel {
 
   .hero-content {
     margin: 0 auto;
-    padding: 2rem 1.5rem;
   }
 
   /* text-align:center above doesn't center this block-level button — auto
