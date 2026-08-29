@@ -22,3 +22,10 @@ app.use((error, req, res, _next) => {
   console.error(error);
   res.status(500).json({ error: "Internal server error" });
 });
+
+// Vercel's Node builder validates every file it traces from api/index.js
+// (not just the entry itself) for a callable default export — this file
+// only had the named `app` export, which api/index.js re-exports as
+// default, and that wasn't enough to satisfy the check on app.js itself.
+// Exporting it here too costs nothing and settles it either way.
+export default app;
