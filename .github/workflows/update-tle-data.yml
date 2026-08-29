@@ -2,9 +2,13 @@ name: Update TLE data
 
 on:
   schedule:
-    # Every 3 hours. CelesTrak asks not to be polled more than once every
-    # 2 hours, so this stays comfortably above that.
-    - cron: "0 */3 * * *"
+    # Every 2 hours (CelesTrak's own minimum poll interval), offset to :13
+    # instead of :00 — GitHub explicitly documents top-of-hour as the most
+    # congested time for scheduled workflows, where runs are most likely to
+    # be delayed or dropped. Scheduled triggers are best-effort, not
+    # guaranteed, so some runs will still be skipped, but this maximizes
+    # how many land close to on time.
+    - cron: "13 */2 * * *"
   workflow_dispatch: # allows a manual "Run workflow" from the Actions tab
 
 permissions:
