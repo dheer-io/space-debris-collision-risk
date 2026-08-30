@@ -18,6 +18,11 @@ permissions:
 jobs:
   fetch-tle:
     runs-on: ubuntu-latest
+    # Job-level so it's reliably visible to every step's own `if:` below,
+    # including the one that also sets it in its own `env:` block — a
+    # step's `if:` isn't guaranteed to see that same step's env.
+    env:
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +30,24 @@ jobs:
         with:
           node-version: "20"
 
+      # continue-on-error so a failed (or rejected-as-partial, see
+      # MIN_EXPECTED_OBJECTS in fetchTleData.js) fetch doesn't fail-fast and
+      # skip every step after it — "Trigger backend rescan" below still
+      # needs to run so alerts keep expiring/updating against whatever TLE
+      # data is already live, even on a day CelesTrak comes back partial or
+      # not at all. Commit/redeploy stay conditional on success: there's
+      # nothing new to publish if the fetch didn't produce a full catalog.
       - name: Fetch latest TLE data
+        id: fetch
         run: node backend/fetchTleData.js
+        continue-on-error: true
 
       # The data file is committed on its own orphan branch (tle-data),
       # never on main, so amending + force-pushing it can never rewrite or
       # drop any commit from main's history — the two histories are
       # structurally disconnected.
       - name: Commit updated data to tle-data branch
+        if: steps.fetch.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -56,20 +71,31 @@ jobs:
           git push --force origin tle-data
 
       - name: Trigger site redeploy
+        if: steps.fetch.outcome == 'success'
         run: gh workflow run deploy-pages.yml --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tells the API to pull the data it just fetched, rescan every watched
-      # satellite, and send any new Telegram alerts. Skipped entirely if the
-      # backend isn't deployed yet (secret unset) so this workflow keeps
-      # working on its own either way.
+      # Tells the API to rescan every watched satellite (plus its own
+      # spotlight/rotation slice) and send any new Telegram alerts — this
+      # runs even when today's fetch above failed or came back partial, so
+      # alerts keep expiring/updating against whatever TLE snapshot the
+      # backend already has rather than going stale until CelesTrak
+      # recovers. Skipped entirely if the backend isn't deployed yet
+      # (secret unset) so this workflow keeps working on its own either way.
       - name: Trigger backend rescan
-        if: ${{ env.API_BASE_URL != '' }}
+        if: ${{ always() && env.API_BASE_URL != '' }}
         run: |
           curl --fail --silent --show-error \
             -X POST "$API_BASE_URL/api/refresh" \
             -H "x-refresh-secret: $REFRESH_SECRET"
         env:
-          API_BASE_URL: ${{ secrets.API_BASE_URL }}
           REFRESH_SECRET: ${{ secrets.REFRESH_SECRET }}
+
+      # continue-on-error above keeps the job from fail-fasting past the
+      # steps that need to run regardless — but a failed/partial fetch
+      # should still show up as a failed run in the Actions history, not a
+      # silent green checkmark.
+      - name: Fail the run if the TLE fetch failed
+        if: steps.fetch.outcome == 'failure'
+        run: exit 1

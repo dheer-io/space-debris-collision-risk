@@ -42,6 +42,11 @@ const RETRY_DELAY_MS = 3000;
 // minutes worst case this bounds it to.
 const FETCH_TIMEOUT_MS = 10_000;
 
+// A full merged catalog normally lands around 19,000 objects (see GROUPS
+// above) — this is a floor well below that, not a target, so ordinary
+// day-to-day fluctuation (new launches, decayed debris) never trips it.
+const MIN_EXPECTED_OBJECTS = 10_000;
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -123,9 +128,18 @@ async function run() {
 
   const objects = [...objectsByNoradId.values()];
 
-  // A failed run must never wipe out the last good dataset.
-  if (objects.length === 0) {
-    throw new Error("Fetched zero objects from every group — leaving existing data untouched.");
+  // A failed OR partial run must never wipe out the last good dataset. A
+  // healthy fetch merges to ~19,000 objects across every group — CelesTrak
+  // returning a stub/error/login page for most groups while a couple still
+  // succeed would otherwise silently shrink the whole catalog (and with it,
+  // every conjunction screen downstream) instead of failing loudly. 10,000
+  // is comfortably below the real number while still well above what any
+  // partial-outage scenario plausibly returns.
+  if (objects.length < MIN_EXPECTED_OBJECTS) {
+    throw new Error(
+      `Fetched only ${objects.length} objects (expected at least ${MIN_EXPECTED_OBJECTS}) — ` +
+        "looks like a partial fetch, not a full catalog. Leaving existing data untouched.",
+    );
   }
 
   const output = {
