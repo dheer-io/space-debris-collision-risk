@@ -260,10 +260,33 @@
 
       <!-- Status-bar header — dots stand in for window controls. -->
       <div class="dashboard-panel-header">
-        <div class="dashboard-status-dots" aria-hidden="true">
-          <span class="dashboard-status-dot dashboard-status-dot--alert"></span>
-          <span class="dashboard-status-dot dashboard-status-dot--warn"></span>
-          <span class="dashboard-status-dot dashboard-status-dot--ok"></span>
+        <!-- Doubles as real view controls, not just decoration — click to
+             switch how much of the dashboard is on screen. -->
+        <div class="dashboard-status-dots" role="group" aria-label="Dashboard view">
+          <button
+            type="button"
+            class="dashboard-status-dot dashboard-status-dot--alert"
+            data-panel-mode="minimized"
+            title="Minimize"
+            aria-label="Minimize dashboard"
+            aria-pressed="false"
+          ></button>
+          <button
+            type="button"
+            class="dashboard-status-dot dashboard-status-dot--warn"
+            data-panel-mode="docked"
+            title="Dock (default)"
+            aria-label="Docked dashboard view"
+            aria-pressed="true"
+          ></button>
+          <button
+            type="button"
+            class="dashboard-status-dot dashboard-status-dot--ok"
+            data-panel-mode="full"
+            title="Full view"
+            aria-label="Full dashboard view"
+            aria-pressed="false"
+          ></button>
         </div>
         <span class="dashboard-panel-title">
           <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -271,7 +294,7 @@
             <circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.1" />
             <circle cx="16.2" cy="6.4" r="1.3" />
           </svg>
-          Orbital Track · Live
+          <span class="dashboard-panel-title-text">Orbital Track · Live</span>
         </span>
         <span id="satellite-tracked-count" class="dashboard-panel-count">0 tracked</span>
       </div>

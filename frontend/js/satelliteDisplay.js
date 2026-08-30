@@ -682,5 +682,46 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
   pollBackendAlerts();
   setInterval(pollBackendAlerts, ALERTS_POLL_INTERVAL_MS);
 
+  setupDashboardModeControls();
+
   return { loadCatalogOnce, update };
+}
+
+const DASHBOARD_MODE_STORAGE_KEY = "spacecell.dashboardMode";
+const DASHBOARD_MODES = ["docked", "full", "minimized"];
+
+// The header's three status dots (see index.html) double as real view
+// controls — docked is the original floating card, full gives the
+// dashboard nearly the whole screen (globe tucked fully behind it, see
+// style.css's --panel-width overrides), minimized collapses everything
+// below the header so the globe is completely unobstructed. Persisted so
+// a reload keeps whatever was last picked.
+function setupDashboardModeControls() {
+  const buttons = document.querySelectorAll("[data-panel-mode]");
+  if (buttons.length === 0) return;
+
+  function applyMode(mode) {
+    const safeMode = DASHBOARD_MODES.includes(mode) ? mode : "docked";
+    document.body.setAttribute("data-dashboard-mode", safeMode);
+    buttons.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.panelMode === safeMode));
+    });
+    try {
+      localStorage.setItem(DASHBOARD_MODE_STORAGE_KEY, safeMode);
+    } catch {
+      // Private browsing or storage blocked — mode just won't persist across reloads.
+    }
+  }
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => applyMode(button.dataset.panelMode));
+  });
+
+  let savedMode = "docked";
+  try {
+    savedMode = localStorage.getItem(DASHBOARD_MODE_STORAGE_KEY) ?? "docked";
+  } catch {
+    // Ignore — falls back to the docked default already set above.
+  }
+  applyMode(savedMode);
 }
