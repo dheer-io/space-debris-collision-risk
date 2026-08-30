@@ -71,6 +71,10 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
   let catalog = [];
   let catalogPromise = null;
   const selections = new Map(); // norad_id -> Selection
+  // Monotonic, never decrements — deriving color from selections.size instead
+  // would reuse a still-tracked color the moment anything was deselected
+  // (e.g. track A, track B, deselect A, track C: C would collide with B).
+  let colorCursor = 0;
   let lastPositionUpdate = 0;
 
   // Runs conjunction screening (tracked satellites vs. the full catalog) off
@@ -228,7 +232,8 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
       return;
     }
 
-    const color = SELECTION_COLORS[selections.size % SELECTION_COLORS.length];
+    const color = SELECTION_COLORS[colorCursor % SELECTION_COLORS.length];
+    colorCursor += 1;
 
     const marker = new THREE.Mesh(markerGeometry, new THREE.MeshBasicMaterial({ color }));
     layerGroup.add(marker);
@@ -631,6 +636,7 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
       li.style.setProperty("--item-risk-color", RISK_COLORS[alert.risk_level] ?? RISK_COLORS.critical);
       const safeTrackedName = escapeHtml(alert.satellite_name);
       const otherLabel = escapeHtml(alert.other_name);
+      const safeRiskLevel = escapeHtml(alert.risk_level);
       li.innerHTML = `
         <div class="dashboard-feed-item-objects">
           <span>${safeTrackedName}</span><span class="id">#${alert.norad_id}</span>
@@ -640,7 +646,7 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
         <div class="dashboard-feed-item-meta">
           <span class="dashboard-feed-item-distance">${alert.distance_km.toFixed(2)} km</span>
           <span class="dashboard-feed-item-time">${formatApproachTime(alert.closest_approach_at)}</span>
-          <span class="dashboard-feed-item-level">${alert.risk_level}</span>
+          <span class="dashboard-feed-item-level">${safeRiskLevel}</span>
         </div>
       `;
       list.appendChild(li);

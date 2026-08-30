@@ -11,6 +11,7 @@ export const telegramRouter = Router();
 const MAX_MATCHES_SHOWN = 5;
 const LOOKUP_RESULTS_SHOWN = 5;
 const ALERTS_SHOWN = 10;
+const LIST_SHOWN = 50;
 
 // Telegram's HTML parse mode only requires escaping these three — satellite
 // names come from CelesTrak and are untrusted-ish, so anything interpolated
@@ -122,8 +123,15 @@ async function handleList(chatId) {
     return sendTelegramMessage(chatId, "You're not watching anything yet. Try <b>/watch</b> &lt;NORAD id or name&gt;.");
   }
 
-  const list = data.map((row) => `• ${htmlEscape(row.satellite_name)} <code>#${row.norad_id}</code>`).join("\n");
-  await sendTelegramMessage(chatId, `📡 <b>Watching</b>\n\n${list}`);
+  // Telegram rejects messages over 4096 chars — sendTelegramMessage() then
+  // throws, which the webhook handler's outer try/catch silently swallows,
+  // so a big-enough watchlist would otherwise get no reply at all.
+  const list = data
+    .slice(0, LIST_SHOWN)
+    .map((row) => `• ${htmlEscape(row.satellite_name)} <code>#${row.norad_id}</code>`)
+    .join("\n");
+  const more = data.length > LIST_SHOWN ? `\n\n…and ${data.length - LIST_SHOWN} more.` : "";
+  await sendTelegramMessage(chatId, `📡 <b>Watching</b>\n\n${list}${more}`);
 }
 
 // Runs the same live single-target scan runConjunctionScan() does, on
