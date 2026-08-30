@@ -152,11 +152,11 @@ body.explore-mode .explore-exit {
   position: fixed;
   inset: var(--panel-gap) var(--panel-gap) var(--panel-gap) auto;
   z-index: 2;
-  /* --dashboard-width (mode-specific, falls back to --panel-width when
-     unset) controls only this card's own size — --panel-width itself stays
-     untouched by view mode, so the globe canvas below never resizes and
-     never has its proportions distorted by switching modes; full/minimized
-     just change how much of it the opaque card covers. */
+  /* --dashboard-width ("full" mode only, falls back to --panel-width
+     otherwise) controls only this card's own size — --panel-width itself
+     stays untouched by view mode, so the globe canvas below never resizes
+     and never has its proportions distorted; full mode just changes how
+     much of it the opaque card covers. */
   width: var(--dashboard-width, var(--panel-width));
   overflow: hidden;
   background-color: #10141f;
@@ -215,9 +215,9 @@ body.explore-mode .satellite-panel {
     width var(--explore-transition-duration) var(--explore-transition-easing);
 }
 
-/* DASHBOARD VIEW MODES — set on <body> by the header's three dot-buttons
+/* DASHBOARD VIEW MODES — set on <body> by the header's two dot-buttons
    (see setupDashboardModeControls() in satelliteDisplay.js). "docked" is
-   the default card above; these two just override --dashboard-width, which
+   the default card above; "full" just overrides --dashboard-width, which
    only feeds the card's own `width` rule above — #globe-canvas keeps
    reading the untouched --panel-width, so the globe's size/aspect stays
    fixed no matter which mode is active. The opaque, higher-z-index card
@@ -225,16 +225,6 @@ body.explore-mode .satellite-panel {
 @media (min-width: 701px) {
   body[data-dashboard-mode="full"] {
     --dashboard-width: calc(100% - (var(--panel-gap) * 2));
-  }
-
-  body[data-dashboard-mode="minimized"] {
-    --dashboard-width: 300px;
-  }
-
-  /* Let height come from content (the header alone, once the scroll
-     section below collapses) instead of stretching down to the bottom gap. */
-  body[data-dashboard-mode="minimized"] .satellite-panel {
-    bottom: auto;
   }
 }
 
@@ -299,7 +289,7 @@ body.explore-mode .satellite-panel {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-width: 0; /* lets the title truncate instead of forcing the header to overflow when squeezed (minimized mode) */
+  min-width: 0; /* lets the title truncate instead of forcing the header to overflow when squeezed (e.g. the mobile bottom sheet) */
   font-family: var(--font-display);
   font-size: 0.88rem;
   font-weight: 600;
@@ -341,21 +331,6 @@ body.explore-mode .satellite-panel {
   flex-direction: column;
   gap: 2.25rem;
   padding: 2.25rem 2.25rem 2.5rem;
-  /* max-height large enough to never clip real content — only meaningful
-     once "minimized" mode collapses it to 0 below (auto isn't animatable). */
-  max-height: 2000px;
-  transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.3s ease;
-}
-
-/* MINIMIZED — everything below the header disappears, leaving just the
-   status bar (title, count, and the same three view controls) floating
-   over an otherwise unobstructed globe. */
-body[data-dashboard-mode="minimized"] .satellite-panel-scroll {
-  max-height: 0;
-  opacity: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  overflow: hidden;
 }
 
 .dashboard-frame-corner {

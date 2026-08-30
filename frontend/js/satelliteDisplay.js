@@ -688,14 +688,14 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
 }
 
 const DASHBOARD_MODE_STORAGE_KEY = "spacecell.dashboardMode";
-const DASHBOARD_MODES = ["docked", "full", "minimized"];
+const DASHBOARD_MODES = ["docked", "full"];
 
-// The header's three status dots (see index.html) double as real view
+// The header's two status dots (see index.html) double as real view
 // controls — docked is the original floating card, full gives the
 // dashboard nearly the whole screen (globe tucked fully behind it, see
-// style.css's --panel-width overrides), minimized collapses everything
-// below the header so the globe is completely unobstructed. Persisted so
-// a reload keeps whatever was last picked.
+// style.css's --dashboard-width override). Persisted so a reload keeps
+// whatever was last picked. Any stale "minimized" value from before that
+// mode was removed just falls back to "docked" below.
 function setupDashboardModeControls() {
   const buttons = document.querySelectorAll("[data-panel-mode]");
   if (buttons.length === 0) return;
