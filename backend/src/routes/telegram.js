@@ -164,9 +164,13 @@ async function handleLookup(chatId, query) {
 // Reads active_alerts (see db/schema.sql) — the live critical set kept
 // in sync by every scheduled scan, same data GET /api/alerts serves.
 async function handleAlerts(chatId) {
+  // A scan-skipped/late row can outlive its own closest_approach_at (the
+  // table is only cleaned up during a scan) — filter it out here too, same
+  // as GET /api/alerts, so this never shows something already in the past.
   const { data, error } = await supabase
     .from("active_alerts")
     .select("norad_id, satellite_name, other_norad_id, other_name, distance_km, risk_level, closest_approach_at")
+    .gt("closest_approach_at", new Date().toISOString())
     .order("distance_km", { ascending: true })
     .limit(ALERTS_SHOWN);
   if (error) throw error;

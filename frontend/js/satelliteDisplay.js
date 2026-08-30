@@ -612,13 +612,20 @@ export function initSatelliteLayer({ globeGroup, globeRadius, controls }) {
     const list = document.getElementById("alerts-feed");
     if (!list) return;
 
-    if (backendAlerts.length === 0) {
+    // The backend already excludes expired rows as of its own response, but
+    // this poll can sit unused for up to ALERTS_POLL_INTERVAL_MS — filter
+    // again against the current time so nothing already past its predicted
+    // closest approach lingers on screen until the next poll comes in.
+    const now = Date.now();
+    const liveAlerts = backendAlerts.filter((alert) => new Date(alert.closest_approach_at).getTime() > now);
+
+    if (liveAlerts.length === 0) {
       list.innerHTML = `<li class="dashboard-feed-empty">All clear.</li>`;
       return;
     }
 
     list.innerHTML = "";
-    for (const alert of backendAlerts.slice(0, ALERTS_TOTAL_MAX)) {
+    for (const alert of liveAlerts.slice(0, ALERTS_TOTAL_MAX)) {
       const li = document.createElement("li");
       li.className = "dashboard-feed-item";
       li.style.setProperty("--item-risk-color", RISK_COLORS[alert.risk_level] ?? RISK_COLORS.critical);
