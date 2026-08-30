@@ -5,5 +5,10 @@
     "api/index.js": {
       "maxDuration": 60
     }
+  },
+  "git": {
+    "deploymentEnabled": {
+      "tle-data": false
+    }
   }
 }
