@@ -18,7 +18,8 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.json({
     name: "space-debris-collision-risk API",
-    docs: "https://github.com/dheer-io/space-debris-collision-risk/blob/main/backend/README.md",
+    repo: "https://github.com/dheer-io/space-debris-collision-risk",
+    telegramBot: "https://t.me/space_debris_alert_bot",
     endpoints: ["/api/health", "/api/satellites/:noradId", "/api/satellites/:noradId/conjunctions", "/api/alerts"],
   });
 });
