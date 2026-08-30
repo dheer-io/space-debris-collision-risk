@@ -15,7 +15,7 @@ https://dheer-io.github.io/space-debris-collision-risk/frontend/html_css/index.h
 
 ```
 CelesTrak TLE data
-   ↓ (backend/fetchTleData.js, scheduled every 3h via GitHub Actions)
+   ↓ (backend/fetchTleData.js, scheduled every 2h via GitHub Actions)
 data/raw/tle-latest.json
    ↓
 Frontend: SGP4 propagation (satellite.js) + conjunction screening (Web Worker)
