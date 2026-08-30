@@ -152,7 +152,12 @@ body.explore-mode .explore-exit {
   position: fixed;
   inset: var(--panel-gap) var(--panel-gap) var(--panel-gap) auto;
   z-index: 2;
-  width: var(--panel-width);
+  /* --dashboard-width (mode-specific, falls back to --panel-width when
+     unset) controls only this card's own size — --panel-width itself stays
+     untouched by view mode, so the globe canvas below never resizes and
+     never has its proportions distorted by switching modes; full/minimized
+     just change how much of it the opaque card covers. */
+  width: var(--dashboard-width, var(--panel-width));
   overflow: hidden;
   background-color: #10141f;
   background-image: linear-gradient(
@@ -212,18 +217,18 @@ body.explore-mode .satellite-panel {
 
 /* DASHBOARD VIEW MODES — set on <body> by the header's three dot-buttons
    (see setupDashboardModeControls() in satelliteDisplay.js). "docked" is
-   the default card above; these two just repurpose --panel-width, which
-   already drives both the panel's own width and how much width the globe
-   canvas gives up (see the #globe-canvas rule near the top of this file),
-   so overriding it here keeps panel and globe resizing in lockstep through
-   the same transition instead of needing separate rules for each. */
+   the default card above; these two just override --dashboard-width, which
+   only feeds the card's own `width` rule above — #globe-canvas keeps
+   reading the untouched --panel-width, so the globe's size/aspect stays
+   fixed no matter which mode is active. The opaque, higher-z-index card
+   simply covers more or less of it. */
 @media (min-width: 701px) {
   body[data-dashboard-mode="full"] {
-    --panel-width: calc(100% - (var(--panel-gap) * 2));
+    --dashboard-width: calc(100% - (var(--panel-gap) * 2));
   }
 
   body[data-dashboard-mode="minimized"] {
-    --panel-width: 300px;
+    --dashboard-width: 300px;
   }
 
   /* Let height come from content (the header alone, once the scroll
@@ -1176,24 +1181,13 @@ body[data-dashboard-mode="minimized"] .satellite-panel-scroll {
   }
 
   /* FULL — bottom sheet grows to cover nearly the whole screen instead of
-     just the default 42vh strip; canvas height calc mirrors it exactly
-     (same reasoning as --panel-width on desktop) so the globe shrinks to
-     match instead of leaving a dead gap under the sheet. */
+     just the default 42vh strip. #globe-canvas's own height rule (see the
+     top of this file) is untouched by dashboard mode, same reasoning as
+     desktop's --panel-width/--dashboard-width split — the globe never
+     resizes or changes proportion, the opaque sheet just covers more of it. */
   body[data-dashboard-mode="full"] .satellite-panel {
     max-height: 84vh;
     max-height: 84svh;
-  }
-
-  body[data-dashboard-mode="full"].explore-mode #globe-canvas {
-    height: calc(100% - 84vh - (var(--panel-gap-mobile) * 2));
-    height: calc(100% - 84svh - (var(--panel-gap-mobile) * 2));
-  }
-
-  /* MINIMIZED — sheet shrinks to just its header row (see the shared
-     .satellite-panel-scroll collapse above), so give the globe back
-     nearly the full screen height instead of the default 42vh cutout. */
-  body[data-dashboard-mode="minimized"].explore-mode #globe-canvas {
-    height: calc(100% - 4.5rem - (var(--panel-gap-mobile) * 2));
   }
 
   .satellite-panel-scroll {
