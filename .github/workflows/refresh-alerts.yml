@@ -1,0 +1,31 @@
+name: Refresh conjunction alerts
+
+# Separate from update-tle-data.yml's 2h TLE fetch cadence: this just tells
+# the backend to rescan against whatever TLE snapshot it already has. Since
+# runConjunctionScan()'s payload rotation is now driven by a persisted
+# cursor (scan_state table, see conjunctions.js) instead of wall-clock time,
+# calling this more often directly shrinks how long a full catalog sweep
+# takes — at every 15 min, ~267 batches finishes in ~2.8 days instead of the
+# ~22 days a single 2h-cadence call would take.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: # allows a manual "Run workflow" from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
+    steps:
+      # Skips quietly (not a failed run) if the backend isn't deployed yet /
+      # the secret isn't set — same convention as update-tle-data.yml's own
+      # "Trigger backend rescan" step.
+      - name: Trigger backend rescan
+        if: ${{ env.API_BASE_URL != '' }}
+        run: |
+          curl --fail --silent --show-error \
+            -X POST "$API_BASE_URL/api/refresh" \
+            -H "x-refresh-secret: $REFRESH_SECRET"
+        env:
+          REFRESH_SECRET: ${{ secrets.REFRESH_SECRET }}

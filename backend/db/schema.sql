@@ -69,3 +69,16 @@ create table if not exists active_alerts (
 
 create index if not exists active_alerts_severity_idx
   on active_alerts (risk_level, distance_km);
+
+-- Singleton row holding the rotation cursor for the payload-catalog scan
+-- slice (see pickTargetIds() in conjunctions.js). Persisted rather than
+-- derived from wall-clock time so that calling /api/refresh more often
+-- actually advances coverage of the catalog instead of rescanning the same
+-- slice repeatedly within the same time bucket.
+create table if not exists scan_state (
+  id smallint primary key default 1 check (id = 1),
+  rotation_counter integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+insert into scan_state (id) values (1) on conflict (id) do nothing;

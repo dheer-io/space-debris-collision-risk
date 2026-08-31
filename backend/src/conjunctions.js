@@ -8,11 +8,13 @@
 // several minutes, well past any realistic function timeout.
 //
 // Instead: every scan always covers the Telegram watchlist + a small fixed
-// spotlight, PLUS a rotating slice of the wider payload catalog. Which
-// slice rotates is derived from wall-clock time (not a stored cursor), so
-// it's stateless and self-correcting if a run is ever skipped — over
-// ~ROTATION_BATCH_SIZE-sized batches, the whole payload catalog eventually
-// gets covered on a rolling basis (see pickTargetIds).
+// spotlight, PLUS a rotating slice of the wider payload catalog. Which slice
+// rotates is driven by a cursor persisted in the scan_state table (one row,
+// advanced by one batch per successful call) rather than derived from
+// wall-clock time — that way calling /api/refresh more often genuinely
+// speeds up how fast the whole catalog gets covered, instead of just
+// rescanning the same time-bucketed slice over and over (see pickTargetIds
+// and getAndAdvanceRotationCounter).
 import {
   createSatrec,
   orbitalAltitudeBand,
@@ -46,9 +48,6 @@ function htmlEscape(value) {
 // the catalog slower than to risk timing out and silently skipping an
 // entire cycle.
 const ROTATION_BATCH_SIZE = 60;
-// Matches update-tle-data.yml's own cadence — the rotation only actually
-// advances at the rate refresh is called, whatever this constant says.
-const SCAN_INTERVAL_MS = 2 * 60 * 60 * 1000;
 
 // critical > high > moderate > low, used to decide whether a repeat sighting
 // of the same pair is worth alerting on again (see shouldAlert below).
@@ -107,22 +106,46 @@ export function findCloseApproaches(target, catalog) {
 
 // Watchlist + spotlight are scanned every single run; everything else is a
 // rotating slice of the payload catalog (debris/unknown objects are targets'
-// *counterparts*, not targets themselves — nobody watches debris). Derived
-// from time rather than a stored offset: stateless, and a missed run just
-// means that slice's turn comes around on the next one instead of drifting.
-function pickTargetIds(catalogObjects, watchlistNoradIds) {
+// *counterparts*, not targets themselves — nobody watches debris). Driven by
+// a persisted rotationCounter (see getAndAdvanceRotationCounter) rather than
+// wall-clock time, so a missed run just means that slice's turn comes around
+// on the next call instead of drifting, AND calling refresh more often
+// actually covers the catalog faster.
+function pickTargetIds(catalogObjects, watchlistNoradIds, rotationCounter) {
   const ids = new Set(SPOTLIGHT_NORAD_IDS);
   for (const id of watchlistNoradIds) ids.add(id);
 
   const payloadIds = catalogObjects.filter((object) => object.type === "payload").map((object) => object.norad_id);
   if (payloadIds.length > 0) {
     const totalBatches = Math.ceil(payloadIds.length / ROTATION_BATCH_SIZE);
-    const batchIndex = Math.floor(Date.now() / SCAN_INTERVAL_MS) % totalBatches;
+    const batchIndex = rotationCounter % totalBatches;
     const start = batchIndex * ROTATION_BATCH_SIZE;
     for (const id of payloadIds.slice(start, start + ROTATION_BATCH_SIZE)) ids.add(id);
   }
 
   return [...ids];
+}
+
+// Reads scan_state's rotation counter and advances it for the next call, in
+// one round trip's worth of work. If scan_state hasn't been created yet
+// (schema.sql not re-run since this was added), falls back to the old
+// wall-clock-derived value instead of throwing — degraded (same slice
+// rescanned within each 2h bucket) but not broken.
+async function getAndAdvanceRotationCounter() {
+  const { data, error } = await supabase.from("scan_state").select("rotation_counter").eq("id", 1).maybeSingle();
+  if (error || !data) {
+    if (error) console.error("Failed to read scan_state (has schema.sql been re-run?):", error);
+    return Math.floor(Date.now() / (2 * 60 * 60 * 1000));
+  }
+
+  const counter = data.rotation_counter;
+  const { error: updateError } = await supabase
+    .from("scan_state")
+    .update({ rotation_counter: counter + 1, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (updateError) console.error("Failed to advance scan_state rotation_counter:", updateError);
+
+  return counter;
 }
 
 // Alerts only fire for critical risk, and only once per (watcher,
@@ -212,9 +235,11 @@ export async function runConjunctionScan() {
     watchersByNoradId.get(row.norad_id).push(row);
   }
 
+  const rotationCounter = await getAndAdvanceRotationCounter();
   const targetIds = pickTargetIds(
     catalogData.objects,
     watchlistRows.map((row) => row.norad_id),
+    rotationCounter,
   );
 
   // Every Supabase write below is batched into ONE call across all targets

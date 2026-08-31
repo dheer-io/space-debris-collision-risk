@@ -79,6 +79,7 @@ npm start
 - **Frontend** — GitHub Pages, rebuilt by `.github/workflows/deploy-pages.yml` on every push to `main` and after every successful TLE fetch.
 - **Backend** — Vercel, deployed from `main`. The `tle-data` branch is an orphan branch holding only `data/raw/tle-latest.json` (no backend code at all), so `backend/vercel.json`'s `git.deploymentEnabled` explicitly disables builds for it — otherwise every scheduled push to that branch would trigger a guaranteed-to-fail Preview deployment.
 - **Data refresh** — `.github/workflows/update-tle-data.yml`, every 2h: fetches CelesTrak, commits to `tle-data` only if the catalog looks complete, triggers the GitHub Pages rebuild, and tells the backend to rescan. That last step runs even when the fetch itself failed or was rejected as partial, so alerts keep updating against the last good snapshot instead of freezing until CelesTrak recovers.
+- **Alert rescans** — `.github/workflows/refresh-alerts.yml`, every 15 min: just calls `POST /api/refresh` again, independent of the TLE fetch above. The backend can't screen the whole ~16k-payload catalog in one 60s serverless invocation, so each scan only covers the Telegram watchlist + ISS + a rotating ~60-object slice (see `backend/src/conjunctions.js`); the slice is tracked by a persisted cursor (`scan_state` table) rather than wall-clock time, so calling refresh more often genuinely shortens how long a full catalog sweep takes (~2.8 days at this cadence) instead of just rescanning the same slice repeatedly.
 
 ## Tech
 
