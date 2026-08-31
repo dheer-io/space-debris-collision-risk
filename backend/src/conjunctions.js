@@ -23,9 +23,14 @@ import {
   riskForDistanceKm,
   CONJUNCTION_SCREEN_KM,
 } from "../../shared/conjunctionMath.js";
+import os from "node:os";
+import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
 import { getCatalog } from "./tle.js";
 import { supabase } from "./db.js";
 import { sendTelegramMessage } from "./telegram.js";
+
+const SCAN_WORKER_PATH = fileURLToPath(new URL("./scanWorker.js", import.meta.url));
 
 const SCREEN_WINDOW_MINUTES = 5 * 60; // same look-ahead window the frontend uses
 const SPOTLIGHT_NORAD_IDS = [25544]; // ISS (ZARYA) — always scanned, watched or not
@@ -126,6 +131,25 @@ function pickTargetIds(catalogObjects, watchlistNoradIds, rotationCounter) {
   return [...ids];
 }
 
+// Used by runConjunctionScan({ scanAll: true }) — every payload, not just a
+// rotated slice. Only sane to run somewhere without a serverless time limit
+// (see backend/scripts/fullScan.js); a few hundred ms/target adds up fast
+// across ~16k payloads.
+function pickAllTargetIds(catalogObjects, watchlistNoradIds) {
+  const ids = new Set(SPOTLIGHT_NORAD_IDS);
+  for (const id of watchlistNoradIds) ids.add(id);
+  for (const object of catalogObjects) {
+    if (object.type === "payload") ids.add(object.norad_id);
+  }
+  return [...ids];
+}
+
+function chunk(array, size) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) chunks.push(array.slice(i, i + size));
+  return chunks;
+}
+
 // Reads scan_state's rotation counter and advances it for the next call, in
 // one round trip's worth of work. If scan_state hasn't been created yet
 // (schema.sql not re-run since this was added), falls back to the old
@@ -219,7 +243,70 @@ async function alertWatchers(target, closeApproaches, watchers) {
   return alertsSent;
 }
 
-export async function runConjunctionScan() {
+// Shared by both the sequential scan (rotation slice or scanAll) and the
+// parallel full scan (see runConjunctionScanParallel) — everything past
+// "we know which pairs are close approaches now" is identical either way.
+// coversAllPayloads controls the active_alerts cleanup query: when true,
+// every existing row is guaranteed to belong to a target that was just
+// scanned (see the comment at that call site), so it reads the whole table
+// instead of filtering by an .in() list that could be ~16k ids long.
+async function persistScanResults({ conjunctionRows, activeAlertRows, currentAlertKeysByTarget, targetIds, coversAllPayloads }) {
+  // scanAll/parallel runs can turn up thousands of rows across ~16k
+  // targets — chunked to stay well under PostgREST's request size limits;
+  // the rotation path (a few hundred rows at most) always fits in one
+  // chunk anyway.
+  const INSERT_CHUNK_SIZE = 500;
+
+  for (const rows of chunk(conjunctionRows, INSERT_CHUNK_SIZE)) {
+    const { error } = await supabase.from("conjunction_events").insert(rows);
+    if (error) console.error("Failed to record conjunction_events:", error);
+  }
+
+  for (const rows of chunk(activeAlertRows, INSERT_CHUNK_SIZE)) {
+    const { error } = await supabase.from("active_alerts").upsert(rows, { onConflict: "norad_id,other_norad_id" });
+    if (error) console.error("Failed to upsert active_alerts:", error);
+  }
+
+  // A pair that no longer shows up as critical for a target we DID
+  // rescan this round (cooled off, or dropped out of range entirely) needs
+  // its stale active_alerts row removed — one read + one delete, not one
+  // per target.
+  if (targetIds.length > 0) {
+    const cleanupQuery = coversAllPayloads
+      ? supabase.from("active_alerts").select("id, norad_id, other_norad_id")
+      : supabase.from("active_alerts").select("id, norad_id, other_norad_id").in("norad_id", targetIds);
+    const { data: existingAlerts, error: existingError } = await cleanupQuery;
+
+    if (existingError) {
+      console.error("Failed to read active_alerts for cleanup:", existingError);
+    } else {
+      const staleIds = existingAlerts
+        .filter((row) => !(currentAlertKeysByTarget.get(row.norad_id) ?? new Set()).has(row.other_norad_id))
+        .map((row) => row.id);
+
+      for (const ids of chunk(staleIds, INSERT_CHUNK_SIZE)) {
+        const { error: deleteError } = await supabase.from("active_alerts").delete().in("id", ids);
+        if (deleteError) console.error("Failed to clean up stale active_alerts:", deleteError);
+      }
+    }
+  }
+
+  // Global safety net: an alert whose predicted closest approach has simply
+  // passed is moot regardless of whether its target got rescanned this
+  // round (e.g. it rotated out of this cycle's batch, or was unwatched).
+  const { error: expireError } = await supabase
+    .from("active_alerts")
+    .delete()
+    .lt("closest_approach_at", new Date().toISOString());
+  if (expireError) console.error("Failed to expire active_alerts:", expireError);
+}
+
+// scanAll: true screens every payload against the full catalog instead of
+// the rotation slice, sequentially on one thread — meant for the scheduled
+// Vercel-triggered path if it's ever given more time to run. For a manual,
+// on-demand full scan from a machine without a serverless time limit, see
+// runConjunctionScanParallel instead — it uses every CPU core.
+export async function runConjunctionScan({ scanAll = false } = {}) {
   const catalogData = await getCatalog({ forceRefresh: true });
   const screenable = buildScreenableCatalog(catalogData.objects);
   const byNoradId = new Map(screenable.map((entry) => [entry.noradId, entry]));
@@ -235,12 +322,10 @@ export async function runConjunctionScan() {
     watchersByNoradId.get(row.norad_id).push(row);
   }
 
-  const rotationCounter = await getAndAdvanceRotationCounter();
-  const targetIds = pickTargetIds(
-    catalogData.objects,
-    watchlistRows.map((row) => row.norad_id),
-    rotationCounter,
-  );
+  const watchlistNoradIds = watchlistRows.map((row) => row.norad_id);
+  const targetIds = scanAll
+    ? pickAllTargetIds(catalogData.objects, watchlistNoradIds)
+    : pickTargetIds(catalogData.objects, watchlistNoradIds, await getAndAdvanceRotationCounter());
 
   // Every Supabase write below is batched into ONE call across all targets
   // instead of one call per target — at up to ~400 targets, per-target
@@ -293,50 +378,106 @@ export async function runConjunctionScan() {
     }
   }
 
-  if (conjunctionRows.length > 0) {
-    const { error } = await supabase.from("conjunction_events").insert(conjunctionRows);
-    if (error) console.error("Failed to record conjunction_events:", error);
+  await persistScanResults({ conjunctionRows, activeAlertRows, currentAlertKeysByTarget, targetIds, coversAllPayloads: scanAll });
+
+  return { scannedCount: targetIds.length, eventsFound, alertsSent };
+}
+
+function runScanWorker(objects, targetIds) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(SCAN_WORKER_PATH, { workerData: { objects, targetIds } });
+    worker.once("message", resolve);
+    worker.once("error", reject);
+    worker.once("exit", (code) => {
+      if (code !== 0) reject(new Error(`scanWorker exited with code ${code}`));
+    });
+  });
+}
+
+// Same coverage as runConjunctionScan({ scanAll: true }) — every payload
+// against the full catalog — but split across worker threads so it
+// actually uses all available CPU cores instead of one. Meant to be run
+// from a machine without a serverless time limit; see
+// backend/scripts/fullScan.js. Telegram sends and their cooldown checks
+// (shouldAlert) stay sequential on the main thread even though the SGP4
+// screening itself is parallel — those are inherently stateful (each check
+// depends on the previous one having been recorded) and watchlist sizes
+// are small enough that this is never the bottleneck.
+export async function runConjunctionScanParallel({ workerCount } = {}) {
+  const catalogData = await getCatalog({ forceRefresh: true });
+
+  const { data: watchlistRows, error: watchlistError } = await supabase
+    .from("watchlist")
+    .select("id, telegram_chat_id, norad_id");
+  if (watchlistError) throw watchlistError;
+
+  const watchersByNoradId = new Map();
+  for (const row of watchlistRows) {
+    if (!watchersByNoradId.has(row.norad_id)) watchersByNoradId.set(row.norad_id, []);
+    watchersByNoradId.get(row.norad_id).push(row);
   }
 
-  if (activeAlertRows.length > 0) {
-    const { error } = await supabase
-      .from("active_alerts")
-      .upsert(activeAlertRows, { onConflict: "norad_id,other_norad_id" });
-    if (error) console.error("Failed to upsert active_alerts:", error);
-  }
+  const targetIds = pickAllTargetIds(
+    catalogData.objects,
+    watchlistRows.map((row) => row.norad_id),
+  );
 
-  // A pair that no longer shows up as critical for a target we DID
-  // rescan this round (cooled off, or dropped out of range entirely) needs
-  // its stale active_alerts row removed — one read + one delete, not one
-  // per target.
-  if (targetIds.length > 0) {
-    const { data: existingAlerts, error: existingError } = await supabase
-      .from("active_alerts")
-      .select("id, norad_id, other_norad_id")
-      .in("norad_id", targetIds);
+  // Leave a couple cores free for the OS/everything else on a machine
+  // that's presumably being used for other things at the same time.
+  const numWorkers = Math.max(1, workerCount ?? os.cpus().length - 2);
+  const batchSize = Math.ceil(targetIds.length / numWorkers);
+  const batches = chunk(targetIds, batchSize).filter((batch) => batch.length > 0);
 
-    if (existingError) {
-      console.error("Failed to read active_alerts for cleanup:", existingError);
-    } else {
-      const staleIds = existingAlerts
-        .filter((row) => !(currentAlertKeysByTarget.get(row.norad_id) ?? new Set()).has(row.other_norad_id))
-        .map((row) => row.id);
+  const batchResults = await Promise.all(batches.map((batch) => runScanWorker(catalogData.objects, batch)));
+  const perTargetResults = batchResults.flat();
 
-      if (staleIds.length > 0) {
-        const { error: deleteError } = await supabase.from("active_alerts").delete().in("id", staleIds);
-        if (deleteError) console.error("Failed to clean up stale active_alerts:", deleteError);
-      }
+  const conjunctionRows = [];
+  const activeAlertRows = [];
+  const currentAlertKeysByTarget = new Map();
+  let eventsFound = 0;
+  let alertsSent = 0;
+
+  for (const { noradId, name, closeApproaches } of perTargetResults) {
+    eventsFound += closeApproaches.length;
+
+    for (const approach of closeApproaches) {
+      conjunctionRows.push({
+        norad_id: noradId,
+        satellite_name: name,
+        other_norad_id: approach.otherNoradId,
+        other_name: approach.otherName,
+        distance_km: approach.distanceKm,
+        risk_level: approach.riskLevel,
+        closest_approach_at: approach.closestApproachAt,
+      });
+    }
+
+    const criticalApproaches = closeApproaches.filter((a) => (RISK_SEVERITY[a.riskLevel] ?? 0) >= ALERT_MIN_SEVERITY);
+    currentAlertKeysByTarget.set(noradId, new Set(criticalApproaches.map((a) => a.otherNoradId)));
+    for (const approach of criticalApproaches) {
+      activeAlertRows.push({
+        norad_id: noradId,
+        satellite_name: name,
+        other_norad_id: approach.otherNoradId,
+        other_name: approach.otherName,
+        distance_km: approach.distanceKm,
+        risk_level: approach.riskLevel,
+        closest_approach_at: approach.closestApproachAt,
+        last_seen_at: new Date().toISOString(),
+      });
+    }
+
+    const watchers = watchersByNoradId.get(noradId) ?? [];
+    if (watchers.length > 0) {
+      // Workers serialize dates to ISO strings to cross the postMessage
+      // boundary cleanly — alertWatchers expects real Date objects (it
+      // calls .toUTCString() on them).
+      const approachesWithDates = closeApproaches.map((a) => ({ ...a, closestApproachAt: new Date(a.closestApproachAt) }));
+      alertsSent += await alertWatchers({ noradId, name }, approachesWithDates, watchers);
     }
   }
 
-  // Global safety net: an alert whose predicted closest approach has simply
-  // passed is moot regardless of whether its target got rescanned this
-  // round (e.g. it rotated out of this cycle's batch, or was unwatched).
-  const { error: expireError } = await supabase
-    .from("active_alerts")
-    .delete()
-    .lt("closest_approach_at", new Date().toISOString());
-  if (expireError) console.error("Failed to expire active_alerts:", expireError);
+  await persistScanResults({ conjunctionRows, activeAlertRows, currentAlertKeysByTarget, targetIds, coversAllPayloads: true });
 
-  return { scannedCount: targetIds.length, eventsFound, alertsSent };
+  return { scannedCount: targetIds.length, eventsFound, alertsSent, workerCount: batches.length };
 }

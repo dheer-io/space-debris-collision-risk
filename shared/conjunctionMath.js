@@ -16,8 +16,11 @@ export function createSatrec(line1, line2) {
 }
 
 export function propagateEci(satrec, date) {
-  const { position } = satellite.propagate(satrec, date);
-  return position || null; // null on propagation failure (decayed/invalid orbit)
+  // propagate() itself can return null (sgp4 failure), not just a falsy
+  // position within an object — a full catalog scan hits this often enough
+  // on decayed/edge-case TLEs that skipping the null check crashes reliably.
+  const result = satellite.propagate(satrec, date);
+  return result?.position || null;
 }
 
 const EARTH_GM_KM3_S2 = 398600.4418; // standard gravitational parameter, km^3/s^2
@@ -49,7 +52,7 @@ function separationKmAt(satrecA, satrecB, date) {
 function separationStateAt(satrecA, satrecB, date) {
   const a = satellite.propagate(satrecA, date);
   const b = satellite.propagate(satrecB, date);
-  if (!a.position || !b.position || !a.velocity || !b.velocity) return null;
+  if (!a || !b || !a.position || !b.position || !a.velocity || !b.velocity) return null;
   return {
     distanceKm: Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z),
     relSpeedKms: Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y, a.velocity.z - b.velocity.z),

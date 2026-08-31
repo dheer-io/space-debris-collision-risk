@@ -74,6 +74,8 @@ cp .env.example .env   # fill in your own Supabase + Telegram credentials
 npm start
 ```
 
+Want the freshest possible alerts right now instead of waiting on the rotation (e.g. ahead of a known event) — `npm run full-scan` screens the *entire* catalog in one go, no serverless time limit since it's your own machine. Splits the work across a worker thread per CPU core (~5.5 min on an 18-core run against the live catalog); a single-threaded pass over the same ~16k targets took over 40 min. Writes straight to the same Supabase tables everything else reads from.
+
 ## Deployment
 
 - **Frontend** — GitHub Pages, rebuilt by `.github/workflows/deploy-pages.yml` on every push to `main` and after every successful TLE fetch.
